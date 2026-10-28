@@ -93,6 +93,9 @@ struct Snapshot {
 pub struct State {
     node: BTreeMap<String, Track>,
     daemons: BTreeMap<String, DaemonState>,
+    /// The identity (pid, start time) of daemons that dropped out of the sample, so one that
+    /// comes back with a new pid is announced as restarted rather than taken for new.
+    gone: BTreeMap<String, (Option<u32>, u64)>,
     last_mono: Option<u64>,
     /// The last snapshot, so the view can be rebuilt after a reset without new reads.
     last: Option<Snapshot>,
@@ -202,7 +205,13 @@ impl State {
         for d in &s.daemons {
             names.insert(d.name.clone());
             let p = d.pid.and_then(|pid| s.procs.iter().find(|p| p.pid == pid));
+            let returned = self.gone.remove(&d.name);
             let st = self.daemons.entry(d.name.clone()).or_default();
+            if let (Some((pid, starttime)), None) = (returned, st.pid) {
+                // back after a tick without a socket: judge it against its identity from before
+                st.pid = pid;
+                st.starttime = starttime;
+            }
             // a new pid or a new start time for the same pid is a restart: nothing from before applies
             let restarted = match (st.pid, p) {
                 (Some(old), Some(p)) => old != p.pid || st.starttime != p.starttime,
@@ -245,6 +254,11 @@ impl State {
             st.cg_auth
                 .update(acc.cgroup.as_ref().and_then(|c| c.peak), s.wall_ms);
             accounts.push(acc);
+        }
+        for (k, st) in &self.daemons {
+            if !names.contains(k) {
+                self.gone.insert(k.clone(), (st.pid, st.starttime));
+            }
         }
         self.daemons.retain(|k, _| names.contains(k));
         self.last = Some(Snapshot {
@@ -424,6 +438,24 @@ mod tests {
             daemons: vec![d],
             ..Default::default()
         }
+    }
+
+    #[test]
+    fn a_daemon_back_after_a_tick_away_with_a_new_pid_is_a_restart() {
+        let mut st = State::new(500, 100);
+        st.ingest(&sample(0, 500, 7, 100, 20));
+        let mut away = sample(1, 500, 7, 100, 20);
+        away.daemons.clear();
+        away.procs.clear();
+        assert!(st.ingest(&away).daemons.is_empty());
+        let v = st.ingest(&sample(2, 300, 8, 300, 10));
+        let d = &v.daemons[0];
+        assert_eq!(d.restarted_at, Some(1_004_000), "announced");
+        assert_eq!(
+            d.rss.peak,
+            Some((310, 1_004_000)),
+            "and the old peak is gone"
+        );
     }
 
     #[test]
