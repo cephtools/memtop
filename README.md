@@ -210,3 +210,8 @@ from 0 to 290 MiB under random reads, and RSS followed, with both kinds of peak 
 * The mon's full/inc osdmap caches report their size but their bytes live in the mempool rows, so
   they are shown as reference rows.
 * A process's `RssAnon` is attributed whole; THP and page-table sharing are not corrected.
+* The rows of one sample come from reads up to `--max-spread` apart (/proc, then the sockets), so a
+  transient that lasts one sample can land in the wrong row: an OSD's RSS spike of 130 MiB at the
+  start of an object-write burst on c28 was real (VmHWM agreed) but showed as "anon outside heap",
+  because the heap stats were read 247 ms before the RSS. The peak value and time are right; the
+  split of such a sample is not.
