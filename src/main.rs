@@ -364,15 +364,29 @@ fn main() {
                     u.help = false;
                     continue;
                 }
-                let rows_len = match (&u.screen, &view) {
-                    (ui::Screen::Node, Some(v)) => v.daemons.len(),
+                // the rows as displayed on this screen: the cursor and the keys act on them
+                let shown: Vec<Vec<String>> = match (&u.screen, &view) {
+                    (ui::Screen::Node, Some(v)) => render::daemons_table(v, u.opts)
+                        .rows
+                        .into_iter()
+                        .map(|r| r.ids)
+                        .collect(),
                     (ui::Screen::Daemon(n), Some(v)) => v
                         .daemons
                         .iter()
                         .find(|d| &d.account.name == n)
-                        .map_or(0, |d| d.rows.len()),
-                    _ => 0,
+                        .map(|d| {
+                            if u.opts.tree {
+                                render::daemon_tree_table(d, u.opts)
+                            } else {
+                                render::daemon_table(d, u.opts)
+                            }
+                        })
+                        .map(|t| t.rows.into_iter().map(|r| r.ids).collect())
+                        .unwrap_or_default(),
+                    _ => Vec::new(),
                 };
+                let rows_len = shown.len();
                 match (k.code, k.modifiers) {
                     (KeyCode::Char('q'), _) | (KeyCode::Char('c'), KeyModifiers::CONTROL) => {
                         break 'outer
@@ -412,24 +426,23 @@ fn main() {
                         u.message = "all observed peaks reset".into();
                     }
                     (KeyCode::Char('r'), _) => {
-                        match (&u.screen, &view) {
-                            (ui::Screen::Node, Some(v)) => {
-                                if let Some(d) = v.daemons.get(u.cursor) {
-                                    st.reset_peak(Some(&d.account.name), "rss");
-                                    st.reset_peak(None, &format!("anon:{}", d.account.name));
-                                    u.message = format!("{}: observed peaks reset", d.account.name);
+                        match (&u.screen, shown.get(u.cursor)) {
+                            (ui::Screen::Node, Some(ids)) => {
+                                for name in ids {
+                                    st.reset_peak(Some(name), "rss");
+                                    st.reset_peak(None, &format!("anon:{}", name));
                                 }
+                                u.message = format!("{}: observed peaks reset", ids.join(" "));
                             }
-                            (ui::Screen::Daemon(n), Some(v)) => {
-                                if let Some(r) = v
-                                    .daemons
-                                    .iter()
-                                    .find(|d| &d.account.name == n)
-                                    .and_then(|d| d.rows.get(u.cursor))
-                                {
-                                    st.reset_peak(Some(n), &r.row.id);
-                                    u.message = format!("{}: peak reset", r.row.label.trim());
+                            (ui::Screen::Daemon(n), Some(ids)) => {
+                                for id in ids {
+                                    st.reset_peak(Some(n), id);
                                 }
+                                u.message = format!(
+                                    "{} row{} reset",
+                                    ids.len(),
+                                    if ids.len() == 1 { "" } else { "s" }
+                                );
                             }
                             _ => {}
                         }

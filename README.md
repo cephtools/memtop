@@ -137,7 +137,7 @@ Every row carries a peak. Two kinds, labelled apart:
   two samples is invisible; the sampling period is shown next to the columns.
 
 Peaks never add up: parts peak at different moments. Only current values reconcile. `r` resets
-the selected row's seen peak, `R` all of them; a daemon restart (new pid or start time) resets
+the selected row's seen peak (on an aggregate of the tree, every leaf beneath it), `R` all of them; a daemon restart (new pid or start time) resets
 its peaks and rates and is announced in its state column for ten samples.
 
 ## Samples

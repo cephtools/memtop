@@ -90,10 +90,17 @@ pub fn draw(f: &mut Frame, v: &View, ui: &Ui) {
     }
 }
 
+/// Two lines: the keys, then the status message, so a message is never cut off on the right.
 fn footer(ui: &Ui, extra: &str) -> Paragraph<'static> {
-    let keys = format!("q quit  ?/h help  j/k move  Enter open  Esc back  r reset row peak  R reset all peaks  p peaks {}  x raw keys {}  t {}  {}  {}",
-        if ui.opts.peaks { "on" } else { "off" }, if ui.opts.raw { "on" } else { "off" }, if ui.opts.tree { "tree" } else { "flat" }, extra, ui.message);
-    Paragraph::new(Line::from(keys)).style(Style::default().add_modifier(Modifier::DIM))
+    let keys = format!(
+        "q quit  ? help  j/k move  Enter open  Esc back  r reset peak(s) of row  R reset all  p peaks:{}  x keys:{}  t {}  {}",
+        if ui.opts.peaks { "on" } else { "off" },
+        if ui.opts.raw { "on" } else { "off" },
+        if ui.opts.tree { "tree" } else { "flat" },
+        extra
+    );
+    Paragraph::new(vec![Line::from(keys), Line::from(ui.message.clone())])
+        .style(Style::default().add_modifier(Modifier::DIM))
 }
 
 fn draw_node(f: &mut Frame, area: Rect, v: &View, ui: &Ui) {
@@ -108,7 +115,7 @@ fn draw_node(f: &mut Frame, area: Rect, v: &View, ui: &Ui) {
         Constraint::Length(summary.len() as u16 + 2),
         Constraint::Length(nt.rows.len() as u16 + 3),
         Constraint::Min(5),
-        Constraint::Length(1),
+        Constraint::Length(2),
     ])
     .split(area);
     let title = format!(
@@ -152,7 +159,7 @@ fn draw_daemon(f: &mut Frame, area: Rect, v: &View, d: &crate::state::DaemonView
     let chunks = Layout::vertical([
         Constraint::Length(summary.len() as u16 + 2),
         Constraint::Min(5),
-        Constraint::Length(1),
+        Constraint::Length(2),
     ])
     .split(area);
     f.render_widget(

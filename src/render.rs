@@ -16,6 +16,9 @@ pub struct TableRow {
     pub cells: Vec<String>,
     pub dim: bool,
     pub warn: bool,
+    /// The accounting row ids this table row stands for: one for a leaf, every leaf beneath for an
+    /// aggregate, the daemon name in the daemons table. The keys act on them.
+    pub ids: Vec<String>,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -83,6 +86,7 @@ fn tracked_cells(r: &TrackedRow, whole: Option<u64>, o: Opts) -> TableRow {
         cells,
         dim: r.row.reference,
         warn: v.is_none() && r.row.signed.is_none() && !r.row.reference,
+        ids: vec![r.row.id.clone()],
     }
 }
 
@@ -256,6 +260,7 @@ pub fn daemons_table(v: &View, o: Opts) -> Table {
             cells,
             dim: d.stale,
             warn: !d.errors.is_empty(),
+            ids: vec![a.name.clone()],
         });
     }
     Table {
@@ -593,6 +598,15 @@ impl Node {
     }
 }
 
+fn leaf_ids(n: &Node, out: &mut Vec<String>) {
+    if let Some(id) = &n.leaf {
+        out.push(id.clone());
+    }
+    for c in &n.children {
+        leaf_ids(c, out);
+    }
+}
+
 fn sum_nodes(nodes: &[Node]) -> Option<u64> {
     let vals: Vec<Option<u64>> = nodes
         .iter()
@@ -926,12 +940,15 @@ fn tree_table(
         if cells[0].chars().count() > 60 {
             cells[0] = cells[0].chars().take(60).collect();
         }
+        let mut ids = Vec::new();
+        leaf_ids(n, &mut ids);
         out.push(TableRow {
             cells,
             dim: n.reference,
             warn: n.value.is_none()
                 && !n.reference
                 && leaf.map_or(true, |r| r.row.signed.is_none()),
+            ids,
         });
     }
     Table {
