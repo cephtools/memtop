@@ -88,6 +88,9 @@ tuner samples on its own timer), the configured target equals the tuner's, and a
 charges at least the anon memory (soft: a difference is explained). A derived figure that comes out negative is `n/a` and the match says
 which input is off, e.g. heap pages held but not resident.
 
+The border between a daemon's summary and its rows can be dragged with the mouse (`+`/`-`
+do the same from the keyboard); a click selects a row and the wheel scrolls.
+
 The rows are shown as a tree by default (`t` toggles the flat list, `--flat` starts with it), so
 each figure sits under what it belongs to:
 
@@ -164,6 +167,11 @@ on every sample, that two replays are identical, that the reported peak is the s
 with its timestamp, that a restart clears peaks and rates, that a build without heap statistics
 still adds up (derived from the idle fixture by dropping the heap text), that a degraded sample is
 shown but not tracked, and that unknown values stay blank.
+
+`scripts/tui-test.py <binary> <args>` drives the terminal UI in a pty through a small screen model:
+it opens a daemon, drags the border between the summary and the rows, presses `+`/`-`, clicks a
+row, scrolls, and checks where the boxes and the cursor end up, e.g.
+`scripts/tui-test.py target/debug/ceph-memtop --replay fixtures/vstart-write --interval 0.3`.
 
 Not yet covered by a recorded fixture: a production (cephadm) node, other Ceph releases, a build
 without tcmalloc, MDS and RGW daemons. `--record` on such a host produces one.

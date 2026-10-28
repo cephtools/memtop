@@ -14,11 +14,42 @@ pub enum Screen {
     Daemon(String),
 }
 
+/// The screen areas of the last draw, so mouse events can be placed.
+#[derive(Clone, Copy, Debug)]
+pub struct Panes {
+    /// The summary box.
+    pub summary: Rect,
+    /// The table the cursor moves in, and the index of its first visible row.
+    pub table: Rect,
+    pub offset: usize,
+    /// The terminal row of the border between the summary and the table, when it can be dragged.
+    pub divider: Option<u16>,
+}
+
+impl Panes {
+    /// The displayed row index under a terminal row, if it is on one of the table's rows.
+    pub fn row_at(&self, y: u16) -> Option<usize> {
+        let first = self.table.y + 2; // the border and the header
+        let last = (self.table.y + self.table.height).saturating_sub(1); // the bottom border
+        if y >= first && y < last {
+            Some((y - first) as usize + self.offset)
+        } else {
+            None
+        }
+    }
+}
+
 pub struct Ui {
     pub screen: Screen,
     pub cursor: usize,
     pub opts: Opts,
     pub message: String,
+    /// The daemon screen's summary height, set by dragging the border or with +/-; None fits the text.
+    pub split: Option<u16>,
+    /// A drag of that border in progress: how far below the summary's bottom border it was grabbed.
+    pub drag: Option<u16>,
+    /// Where the last draw put the summary and the table.
+    pub panes: Option<Panes>,
     pub pglog: Option<(String, Result<Vec<crate::pglog::PgLog>, String>)>,
     /// A per-PG query in flight, answered on its own thread so the screen keeps refreshing.
     pub pglog_rx:
@@ -33,6 +64,9 @@ impl Ui {
             cursor: 0,
             opts,
             message: String::new(),
+            split: None,
+            drag: None,
+            panes: None,
             pglog: None,
             pglog_rx: None,
             help: false,
@@ -76,7 +110,7 @@ fn table_widget(t: &Table) -> RTable<'static> {
         .highlight_symbol("> ")
 }
 
-pub fn draw(f: &mut Frame, v: &View, ui: &Ui) {
+pub fn draw(f: &mut Frame, v: &View, ui: &mut Ui) {
     let area = f.area();
     match &ui.screen {
         Screen::Node => draw_node(f, area, v, ui),
@@ -103,7 +137,7 @@ fn footer(ui: &Ui, extra: &str) -> Paragraph<'static> {
         .style(Style::default().add_modifier(Modifier::DIM))
 }
 
-fn draw_node(f: &mut Frame, area: Rect, v: &View, ui: &Ui) {
+fn draw_node(f: &mut Frame, area: Rect, v: &View, ui: &mut Ui) {
     let summary = render::node_summary(v);
     let nt = if ui.opts.tree {
         render::node_tree_table(v, ui.opts)
@@ -140,6 +174,12 @@ fn draw_node(f: &mut Frame, area: Rect, v: &View, ui: &Ui) {
         st.select(Some(ui.cursor.min(dt.rows.len() - 1)));
     }
     f.render_stateful_widget(table_widget(&dt), chunks[2], &mut st);
+    ui.panes = Some(Panes {
+        summary: chunks[0],
+        table: chunks[2],
+        offset: st.offset(),
+        divider: None,
+    });
     f.render_widget(
         footer(
             ui,
@@ -149,15 +189,22 @@ fn draw_node(f: &mut Frame, area: Rect, v: &View, ui: &Ui) {
     );
 }
 
-fn draw_daemon(f: &mut Frame, area: Rect, v: &View, d: &crate::state::DaemonView, ui: &Ui) {
+fn draw_daemon(f: &mut Frame, area: Rect, v: &View, d: &crate::state::DaemonView, ui: &mut Ui) {
     let summary = render::daemon_summary(d, v.sampling_ms);
     let t = if ui.opts.tree {
         render::daemon_tree_table(d, ui.opts)
     } else {
         render::daemon_table(d, ui.opts)
     };
+    // the summary box fits its text unless the border was moved; it keeps at least one line and
+    // leaves the table a few rows and the footer its two
+    let natural = summary.len() as u16 + 2;
+    let top = ui
+        .split
+        .unwrap_or(natural)
+        .clamp(3, area.height.saturating_sub(7).max(3));
     let chunks = Layout::vertical([
-        Constraint::Length(summary.len() as u16 + 2),
+        Constraint::Length(top),
         Constraint::Min(5),
         Constraint::Length(2),
     ])
@@ -182,6 +229,12 @@ fn draw_daemon(f: &mut Frame, area: Rect, v: &View, d: &crate::state::DaemonView
         st.select(Some(ui.cursor.min(t.rows.len() - 1)));
     }
     f.render_stateful_widget(table_widget(&t), chunks[1], &mut st);
+    ui.panes = Some(Panes {
+        summary: chunks[0],
+        table: chunks[1],
+        offset: st.offset(),
+        divider: Some(chunks[0].y + chunks[0].height - 1),
+    });
     f.render_widget(
         footer(
             ui,
@@ -278,9 +331,11 @@ fn draw_help(f: &mut Frame, area: Rect) {
         peak:kernel = VmHWM / memory.peak, recorded by the kernel; correct regardless of when the tool started\n\
         peaks never add up: the parts peak at different moments. Only current values reconcile.\n\n\
         keys: j/k or arrows move, Enter opens a daemon, Esc goes back, r resets the selected row's seen peak,\n\
-        R resets all seen peaks, p toggles peak columns, x shows raw source keys, t tree/flat rows, g queries per-PG pglog (OSD), q quits.";
+        R resets all seen peaks, p toggles peak columns, x shows raw source keys, t tree/flat rows, g queries per-PG pglog (OSD), q quits.\n\
+        mouse: a click selects a row, the wheel scrolls, dragging the border between a daemon's summary and its rows\n\
+        resizes them (+/- do the same).";
     let w = area.width.min(110);
-    let h = area.height.min(18);
+    let h = area.height.min(20);
     let r = Rect {
         x: area.x + (area.width - w) / 2,
         y: area.y + (area.height - h) / 2,

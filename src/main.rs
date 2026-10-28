@@ -15,7 +15,11 @@ mod ui;
 mod units;
 
 use clap::Parser;
-use ratatui::crossterm::event::{self, Event, KeyCode, KeyEventKind, KeyModifiers};
+use ratatui::crossterm::event::{
+    self, DisableMouseCapture, EnableMouseCapture, Event, KeyCode, KeyEventKind, KeyModifiers,
+    MouseButton, MouseEventKind,
+};
+use ratatui::crossterm::ExecutableCommand;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
@@ -87,6 +91,37 @@ struct Cli {
     /// Keyring for the on-request per-PG query.
     #[arg(long)]
     keyring: Option<String>,
+}
+
+/// Leave the terminal as it was found: mouse reporting off, then ratatui's own restore.
+fn tui_restore() {
+    let _ = std::io::stdout().execute(DisableMouseCapture);
+    ratatui::restore();
+}
+
+/// The rows as displayed on the current screen: the cursor, the keys and the mouse act on them.
+fn shown_rows(u: &ui::Ui, view: &Option<state::View>) -> Vec<Vec<String>> {
+    match (&u.screen, view) {
+        (ui::Screen::Node, Some(v)) => render::daemons_table(v, u.opts)
+            .rows
+            .into_iter()
+            .map(|r| r.ids)
+            .collect(),
+        (ui::Screen::Daemon(n), Some(v)) => v
+            .daemons
+            .iter()
+            .find(|d| &d.account.name == n)
+            .map(|d| {
+                if u.opts.tree {
+                    render::daemon_tree_table(d, u.opts)
+                } else {
+                    render::daemon_table(d, u.opts)
+                }
+            })
+            .map(|t| t.rows.into_iter().map(|r| r.ids).collect())
+            .unwrap_or_default(),
+        _ => Vec::new(),
+    }
 }
 
 enum Source {
@@ -182,11 +217,10 @@ fn main() {
     }
     let tui = !(cli.once || cli.json || cli.plain);
     {
-        let tui = tui;
         let prev = std::panic::take_hook();
         std::panic::set_hook(Box::new(move |info| {
             if tui {
-                ratatui::restore();
+                tui_restore();
             }
             let errs = kvstats::restore_all();
             for e in errs {
@@ -301,6 +335,7 @@ fn main() {
     }
     // the terminal UI
     let mut term = ratatui::init();
+    let _ = std::io::stdout().execute(EnableMouseCapture);
     let mut u = ui::Ui::new(opts);
     let mut view: Option<state::View> = None;
     let mut next_tick = Instant::now();
@@ -338,7 +373,7 @@ fn main() {
         }
         if dirty {
             if let Some(v) = &view {
-                let _ = term.draw(|f| ui::draw(f, v, &u));
+                let _ = term.draw(|f| ui::draw(f, v, &mut u));
             }
             dirty = false;
         }
@@ -355,6 +390,54 @@ fn main() {
                 dirty = true;
                 continue;
             }
+            if let Ok(Event::Mouse(m)) = ev {
+                match m.kind {
+                    MouseEventKind::Down(MouseButton::Left) => {
+                        if u.help {
+                            u.help = false;
+                            dirty = true;
+                            continue;
+                        }
+                        let Some(p) = u.panes else { continue };
+                        if let Some(div) = p.divider {
+                            // either edge of the border between the two sections grabs it
+                            if m.row == div || m.row == div + 1 {
+                                u.drag = Some(m.row - div);
+                                continue;
+                            }
+                        }
+                        if let Some(i) = p.row_at(m.row) {
+                            if i < shown_rows(&u, &view).len() {
+                                u.cursor = i;
+                                dirty = true;
+                            }
+                        }
+                    }
+                    MouseEventKind::Drag(MouseButton::Left) => {
+                        if let (Some(off), Some(p)) = (u.drag, u.panes) {
+                            // the grabbed border follows the pointer: the summary ends there
+                            let height =
+                                (m.row.saturating_sub(off) + 1).saturating_sub(p.summary.y);
+                            if u.split != Some(height) {
+                                u.split = Some(height);
+                                dirty = true;
+                            }
+                        }
+                    }
+                    MouseEventKind::Up(_) => u.drag = None,
+                    MouseEventKind::ScrollDown => {
+                        let n = shown_rows(&u, &view).len();
+                        u.cursor = (u.cursor + 1).min(n.saturating_sub(1));
+                        dirty = true;
+                    }
+                    MouseEventKind::ScrollUp => {
+                        u.cursor = u.cursor.saturating_sub(1);
+                        dirty = true;
+                    }
+                    _ => {}
+                }
+                continue;
+            }
             if let Ok(Event::Key(k)) = ev {
                 if k.kind != KeyEventKind::Press {
                     continue;
@@ -364,28 +447,7 @@ fn main() {
                     u.help = false;
                     continue;
                 }
-                // the rows as displayed on this screen: the cursor and the keys act on them
-                let shown: Vec<Vec<String>> = match (&u.screen, &view) {
-                    (ui::Screen::Node, Some(v)) => render::daemons_table(v, u.opts)
-                        .rows
-                        .into_iter()
-                        .map(|r| r.ids)
-                        .collect(),
-                    (ui::Screen::Daemon(n), Some(v)) => v
-                        .daemons
-                        .iter()
-                        .find(|d| &d.account.name == n)
-                        .map(|d| {
-                            if u.opts.tree {
-                                render::daemon_tree_table(d, u.opts)
-                            } else {
-                                render::daemon_table(d, u.opts)
-                            }
-                        })
-                        .map(|t| t.rows.into_iter().map(|r| r.ids).collect())
-                        .unwrap_or_default(),
-                    _ => Vec::new(),
-                };
+                let shown = shown_rows(&u, &view);
                 let rows_len = shown.len();
                 match (k.code, k.modifiers) {
                     (KeyCode::Char('q'), _) | (KeyCode::Char('c'), KeyModifiers::CONTROL) => {
@@ -416,6 +478,16 @@ fn main() {
                                 .as_ref()
                                 .and_then(|v| v.daemons.iter().position(|d| d.account.name == n))
                                 .unwrap_or(0);
+                        }
+                    }
+                    (KeyCode::Char('-'), _) => {
+                        if let Some(p) = u.panes.filter(|p| p.divider.is_some()) {
+                            u.split = Some(p.summary.height.saturating_sub(1));
+                        }
+                    }
+                    (KeyCode::Char('+'), _) | (KeyCode::Char('='), _) => {
+                        if let Some(p) = u.panes.filter(|p| p.divider.is_some()) {
+                            u.split = Some(p.summary.height + 1);
                         }
                     }
                     (KeyCode::Char('p'), _) => u.opts.peaks = !u.opts.peaks,
@@ -482,7 +554,7 @@ fn main() {
             }
         }
     }
-    ratatui::restore();
+    tui_restore();
     for e in kvstats::restore_all() {
         eprintln!("restore: {}", e);
     }
