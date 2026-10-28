@@ -407,6 +407,12 @@ impl Collector {
                         Err(e) => r.errors.push(format!("kv stats: {}", e)),
                     }
                 }
+                if r.kind == "osd" {
+                    match asok::call_json(&sock, &asok::cmd("bluefs files list", &[]), timeout) {
+                        Ok(v) => r.bluefs_files = Some(v),
+                        Err(e) => r.errors.push(format!("bluefs files list: {}", e)),
+                    }
+                }
                 r.spread_ms = (t0.elapsed()).as_millis() as u64;
                 let _ = tx.send(r);
                 flag.store(false, Ordering::SeqCst);

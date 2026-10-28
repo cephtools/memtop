@@ -48,6 +48,15 @@ pub fn lean(s: &RawSample) -> RawSample {
                     || k == "rocksdb"
             });
         }
+        // of the BlueFS file list only the WAL files matter
+        if let Some(serde_json::Value::Array(files)) = &mut d.bluefs_files {
+            files.retain(|f| {
+                f.get("name")
+                    .and_then(|n| n.as_str())
+                    .map(|n| n.starts_with("db.wal/"))
+                    .unwrap_or(false)
+            });
+        }
     }
     out
 }

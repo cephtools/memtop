@@ -42,6 +42,9 @@ pub struct RawDaemon {
     pub heap: Option<String>,
     /// `dump_objectstore_kv_stats`, when RocksDB statistics are enabled.
     pub kv_stats: Option<serde_json::Value>,
+    /// `bluefs files list` (OSDs): the live RocksDB WAL files bound the memtables.
+    #[serde(default)]
+    pub bluefs_files: Option<serde_json::Value>,
     /// The few config values the accounting needs (memory targets, stats switches).
     pub config: HashMap<String, String>,
     /// What could not be read, one line each: "perf dump: connect: Permission denied".

@@ -707,14 +707,9 @@ fn daemon_tree(d: &DaemonView) -> Vec<Node> {
         ));
     }
     for (id, label) in [
-        (
-            "nocache:memtables",
-            "RocksDB memtables, default column family only",
-        ),
-        (
-            "nocache:sst_readers",
-            "RocksDB SST index/filter blocks, default column family only",
-        ),
+        ("nocache:memtables", "RocksDB memtables"),
+        ("nocache:sst_readers", "RocksDB SST index/filter blocks"),
+        ("ref:wal_alive", "RocksDB WAL alive (BlueFS db.wal)"),
     ] {
         if let Some(n) = Node::leaf_if(rows, id, label) {
             untracked.push(n);

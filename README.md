@@ -60,8 +60,9 @@ buffers and vmalloc are shown as reference rows: real, but inside slab and "othe
 | cache: meta | the eight mempools BlueStore's meta cache counts (`BlueStore.h` `MetaCache::_get_used_bytes`) |
 | cache: kv, kv_onode | `rocksdb-cache-default.usage`, `rocksdb-cache-O.usage` (perf dump) |
 | budget per cache | `*-pricache:<cache>.committed_bytes` |
-| RocksDB memtables, default column family only | `dump_objectstore_kv_stats` `rocksdb_memtable_usage`: needs `rocksdb_perf` and `rocksdb_collect_memory_stats` (`--enable-kv-stats`); see the limits below |
-| RocksDB SST index/filter blocks, default column family only | the same dump, `rocksdb_index_filter_blocks_usage` |
+| RocksDB memtables | `dump_objectstore_kv_stats` `rocksdb_memtable_usage`: needs `rocksdb_perf` and `rocksdb_collect_memory_stats` (`--enable-kv-stats`); see the limits below |
+| RocksDB SST index/filter blocks | the same dump, `rocksdb_index_filter_blocks_usage` |
+| RocksDB WAL alive (reference) | `bluefs files list`, the sizes under `db.wal/`: a WAL file lives until every column family flushed its entries, so the memtables cannot exceed it by much |
 | PG log, OSD maps, allocator, in-flight writes, BlueFS, buffers, other | mempools by group (`--raw` shows the keys) |
 | heap, not in any mempool | tcmalloc "in use by application" minus the rows above |
 | allocator: free lists and metadata | tcmalloc "actual" minus "in use" |
@@ -191,12 +192,13 @@ from 0 to 290 MiB under random reads, and RSS followed, with both kinds of peak 
 
 ## Known limits
 
-* Ceph reports RocksDB memtable and SST-reader usage for the default column family only
-  (`RocksDBStore::get_statistics` calls `DB::GetProperty` without a column family handle): the
-  figure stayed at 2 KiB through a 30 s write load on c28. On a sharded OSD the memtables of the
-  O, L, P and M families, hundreds of MiB under write load, are therefore inside "heap, not in any
-  mempool" (and in `untracked`). Reporting them needs a daemon change (`GetAggregatedIntProperty`,
-  or one property per handle).
+* Ceph daemons without the all-families fix report RocksDB memtable and SST-reader usage for the
+  default column family only (`RocksDBStore::get_statistics` called `DB::GetProperty` without a
+  column family handle): the figure stayed at 2 KiB through a 10 min write load on c28 while the
+  live WAL held 954 MiB. On such an OSD the memtables of the O, L, P and M families, hundreds of MiB
+  under write load, are inside "heap, not in any mempool" (and in `untracked`); the memtables row
+  says so when its figure is tiny next to the live WAL. The fix (`GetAggregatedIntProperty`) is a
+  four-line change to `RocksDBStore::get_statistics`.
 * The mon's full/inc osdmap caches report their size but their bytes live in the mempool rows, so
   they are shown as reference rows.
 * A process's `RssAnon` is attributed whole; THP and page-table sharing are not corrected.

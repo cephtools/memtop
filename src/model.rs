@@ -516,6 +516,23 @@ pub struct DaemonAccount {
     pub problems: Vec<String>,
 }
 
+/// The live RocksDB WAL bytes: the sizes of the BlueFS files under db.wal/.
+fn wal_alive(d: &RawDaemon) -> Option<u64> {
+    let files = d.bluefs_files.as_ref()?.as_array()?;
+    Some(
+        files
+            .iter()
+            .filter(|f| {
+                f.get("name")
+                    .and_then(|n| n.as_str())
+                    .map(|n| n.starts_with("db.wal/"))
+                    .unwrap_or(false)
+            })
+            .filter_map(|f| f.get("size").and_then(|s| s.as_u64()))
+            .sum(),
+    )
+}
+
 /// Why the kv-stats figures are unknown, from the same sample: the two switches are read every
 /// tick, and a failed read keeps its error.
 fn kv_why(d: &RawDaemon) -> String {
@@ -731,6 +748,7 @@ pub fn daemon_account(d: &RawDaemon, p: Option<&ProcInfo>, s: &RawSample) -> Dae
     };
     let memtable = kv_num("rocksdb_memtable_usage");
     let sst_readers = kv_num("rocksdb_index_filter_blocks_usage");
+    let wal_alive = wal_alive(d);
     if d.kind == "osd" {
         // only the OSD exports these (dump_objectstore_kv_stats), and only for RocksDB's default
         // column family: RocksDBStore::get_statistics calls DB::GetProperty without a handle, so
@@ -738,28 +756,49 @@ pub fn daemon_account(d: &RawDaemon, p: Option<&ProcInfo>, s: &RawSample) -> Dae
         // what it is; the rest sits in the heap residual.
         let r = Row::new(
             "nocache:memtables",
-            "RocksDB memtables, default column family only",
+            "RocksDB memtables",
             memtable,
             "dump_objectstore_kv_stats rocksdb_memtable_usage",
         )
         .optional();
+        // a daemon without the all-families fix answers for the default family: a few KiB while
+        // the live WAL, which the memtables cannot exceed by much, is large
+        let default_only = match (memtable, wal_alive) {
+            (Some(m), Some(w)) => w > 64 << 20 && m < w / 50,
+            _ => false,
+        };
         rows.push(if memtable.is_none() {
             r.note(kv_why(d))
+        } else if default_only {
+            r.note("default column family only (tiny next to the live WAL): the sharded families sit in 'heap, not in any mempool'")
         } else {
-            r.note("sharded families (O, L, P, M) are not reported: they sit in 'heap, not in any mempool'")
+            r.note("all column families")
         });
         let r = Row::new(
             "nocache:sst_readers",
-            "RocksDB SST index/filter blocks, default column family only",
+            "RocksDB SST index/filter blocks",
             sst_readers,
             "dump_objectstore_kv_stats rocksdb_index_filter_blocks_usage",
         )
         .optional();
         rows.push(if sst_readers.is_none() {
             r.note("n/a: same reason as the memtables row")
+        } else if default_only {
+            r.note("default column family only")
         } else {
-            r.note("other families not reported")
+            r.note("all column families")
         });
+        rows.push(
+            Row::new(
+                "ref:wal_alive",
+                "RocksDB WAL alive (BlueFS db.wal files)",
+                wal_alive,
+                "bluefs files list: sum of db.wal/* sizes",
+            )
+            .reference()
+            .optional()
+            .note("bounds the memtables: a WAL file lives until every column family flushed its entries"),
+        );
     }
     if d.kind == "osd" {
         rows.push(
@@ -1535,6 +1574,41 @@ mod tests {
             id.detail
         );
         assert_eq!(a4.ceph.non_heap, None);
+    }
+
+    #[test]
+    fn the_live_wal_is_a_reference_row_and_exposes_a_default_family_only_daemon() {
+        let (mut d, p, s) = osd_sample(true);
+        d.bluefs_files = Some(serde_json::json!([
+            {"ino": 1, "name": "db.wal/000123.log", "size": 100 << 20},
+            {"ino": 2, "name": "db.wal/000124.log", "size": 60 << 20},
+            {"ino": 3, "name": "db/000100.sst", "size": 900 << 20}
+        ]));
+        d.kv_stats = Some(
+            serde_json::json!({"rocksdb_memtable_usage": "20", "rocksdb_index_filter_blocks_usage": "7"}),
+        );
+        let a = daemon_account(&d, Some(&p), &s);
+        let by = |id: &str| a.rows.iter().find(|r| r.id == id).unwrap();
+        assert_eq!(by("ref:wal_alive").value, Some(160 << 20));
+        assert!(by("ref:wal_alive").reference);
+        assert_eq!(a.sum, Some(1000), "a reference row is not summed");
+        assert!(
+            by("nocache:memtables")
+                .note
+                .contains("default column family only"),
+            "{}",
+            by("nocache:memtables").note
+        );
+        // a small live WAL says nothing about the families
+        d.bluefs_files = Some(serde_json::json!([{"name": "db.wal/000125.log", "size": 10 << 20}]));
+        let a = daemon_account(&d, Some(&p), &s);
+        let n = &a
+            .rows
+            .iter()
+            .find(|r| r.id == "nocache:memtables")
+            .unwrap()
+            .note;
+        assert!(n.contains("all column families"), "{}", n);
     }
 
     #[test]
