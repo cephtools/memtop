@@ -68,6 +68,9 @@ struct Cli {
     /// Show the raw source keys (mempool names, meminfo fields) instead of notes.
     #[arg(long)]
     raw: bool,
+    /// Flat row lists instead of the tree layout.
+    #[arg(long)]
+    flat: bool,
     /// Do not ask daemons for tcmalloc heap statistics.
     #[arg(long)]
     no_heap: bool,
@@ -142,7 +145,11 @@ fn plain_text(v: &state::View, o: render::Opts) -> String {
         s.push_str(&l);
         s.push('\n');
     }
-    s.push_str(&render::plain(&render::node_table(v, o)));
+    s.push_str(&render::plain(&if o.tree {
+        render::node_tree_table(v, o)
+    } else {
+        render::node_table(v, o)
+    }));
     s.push_str(&render::plain(&render::daemons_table(v, o)));
     for d in &v.daemons {
         s.push('\n');
@@ -150,7 +157,11 @@ fn plain_text(v: &state::View, o: render::Opts) -> String {
             s.push_str(&l);
             s.push('\n');
         }
-        s.push_str(&render::plain(&render::daemon_table(d, o)));
+        s.push_str(&render::plain(&if o.tree {
+            render::daemon_tree_table(d, o)
+        } else {
+            render::daemon_table(d, o)
+        }));
     }
     s
 }
@@ -246,6 +257,7 @@ fn main() {
     let opts = render::Opts {
         peaks: !cli.no_peaks,
         raw: cli.raw,
+        tree: !cli.flat,
     };
     let mut failed = 0usize;
     let mut checked = 0usize;
@@ -394,6 +406,7 @@ fn main() {
                     }
                     (KeyCode::Char('p'), _) => u.opts.peaks = !u.opts.peaks,
                     (KeyCode::Char('x'), _) => u.opts.raw = !u.opts.raw,
+                    (KeyCode::Char('t'), _) => u.opts.tree = !u.opts.tree,
                     (KeyCode::Char('R'), _) => {
                         st.reset_all_peaks();
                         u.message = "all observed peaks reset".into();

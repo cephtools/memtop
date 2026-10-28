@@ -22,6 +22,8 @@ pub struct TableRow {
 pub struct Opts {
     pub peaks: bool,
     pub raw: bool,
+    /// Rows under what they belong to (tree) instead of a flat list.
+    pub tree: bool,
 }
 
 fn grow_mark(t: &crate::peaks::Track) -> String {
@@ -546,4 +548,430 @@ pub fn plain(t: &Table) -> String {
         s.push('\n');
     }
     s
+}
+
+// ---- tree layout: the same rows, shown under what they belong to ----------------------------
+
+/// One node of the tree: an aggregate (value computed from its children or a side figure) or a
+/// leaf bound to an accounting row, which carries the rate and the peaks.
+struct Node {
+    label: String,
+    value: Option<u64>,
+    note: String,
+    leaf: Option<String>,
+    reference: bool,
+    children: Vec<Node>,
+}
+
+impl Node {
+    fn agg(label: &str, value: Option<u64>, note: &str, children: Vec<Node>) -> Node {
+        Node {
+            label: label.into(),
+            value,
+            note: note.into(),
+            leaf: None,
+            reference: false,
+            children,
+        }
+    }
+    fn leaf(rows: &[TrackedRow], id: &str, label: &str) -> Node {
+        let r = rows.iter().find(|r| r.row.id == id);
+        Node {
+            label: label.into(),
+            value: r.and_then(|r| r.row.value),
+            note: r.map(|r| r.row.note.clone()).unwrap_or_default(),
+            leaf: Some(id.into()),
+            reference: r.map_or(false, |r| r.row.reference),
+            children: Vec::new(),
+        }
+    }
+    /// A leaf shown only when its row exists.
+    fn leaf_if(rows: &[TrackedRow], id: &str, label: &str) -> Option<Node> {
+        rows.iter()
+            .any(|r| r.row.id == id)
+            .then(|| Node::leaf(rows, id, label))
+    }
+}
+
+fn sum_nodes(nodes: &[Node]) -> Option<u64> {
+    let vals: Vec<Option<u64>> = nodes
+        .iter()
+        .filter(|n| !n.reference)
+        .map(|n| n.value)
+        .collect();
+    if vals.is_empty() || vals.iter().any(|v| v.is_none()) {
+        None
+    } else {
+        Some(vals.iter().map(|v| v.unwrap()).sum())
+    }
+}
+
+fn flatten<'a>(nodes: &'a [Node], prefix: &str, out: &mut Vec<(String, &'a Node)>) {
+    let n = nodes.len();
+    for (i, node) in nodes.iter().enumerate() {
+        let last = i + 1 == n;
+        out.push((
+            format!(
+                "{}{} {}",
+                prefix,
+                if last { "└─" } else { "├─" },
+                node.label
+            ),
+            node,
+        ));
+        let child_prefix = format!("{}{}", prefix, if last { "   " } else { "│  " });
+        flatten(&node.children, &child_prefix, out);
+    }
+}
+
+/// The daemon's memory as a tree under its RSS. Leaves are the accounting rows and keep their
+/// rate and peaks; aggregates show the current value only, since peaks do not add up.
+fn daemon_tree(d: &DaemonView) -> Vec<Node> {
+    let rows = &d.rows;
+    let a = &d.account;
+    let k = &a.kernel;
+    let c = &a.ceph;
+    let b = units::bytes;
+    let has = |id: &str| rows.iter().any(|r| r.row.id == id);
+    let val = |id: &str| {
+        rows.iter()
+            .find(|r| r.row.id == id)
+            .and_then(|r| r.row.value)
+    };
+    // mempools: the caches BlueStore counts, and everything under no cache
+    let mut cache_pools = Vec::new();
+    if let Some(n) = Node::leaf_if(rows, "cache:data", "data cache (BlueStore buffers)") {
+        cache_pools.push(n);
+    }
+    if let Some(n) = Node::leaf_if(rows, "cache:meta", "meta cache (onodes, extents, blobs)") {
+        cache_pools.push(n);
+    }
+    let mut uncached = Vec::new();
+    for (id, label) in [
+        ("nocache:pglog", "PG log (entries and dups)"),
+        ("nocache:osdmap", "OSD maps"),
+        ("nocache:alloc", "BlueStore allocator"),
+        ("nocache:writes", "BlueStore in-flight writes"),
+        ("nocache:bluefs", "BlueFS"),
+        ("nocache:buffers", "buffers (messages, bufferlists)"),
+        ("nocache:other", "other mempools"),
+    ] {
+        if let Some(n) = Node::leaf_if(rows, id, label) {
+            uncached.push(n);
+        }
+    }
+    let mut mempools = Vec::new();
+    if !cache_pools.is_empty() {
+        let v = sum_nodes(&cache_pools);
+        mempools.push(Node::agg(
+            "caches",
+            v,
+            "under the data and meta priority caches",
+            cache_pools,
+        ));
+    }
+    let v = sum_nodes(&uncached);
+    mempools.push(Node::agg("un-cached", v, "under no cache", uncached));
+    let mempools_node = Node::agg(
+        "mempools (dump_mempools total)",
+        c.mempool_total,
+        "",
+        mempools,
+    );
+    // RocksDB: its block caches are heap outside the mempools; the rest it does not report
+    let mut kv = Vec::new();
+    if let Some(n) = Node::leaf_if(rows, "cache:kv", "kv block cache") {
+        kv.push(n);
+    }
+    if let Some(n) = Node::leaf_if(rows, "cache:kv_onode", "kv_onode block cache") {
+        kv.push(n);
+    }
+    let mut untracked = Vec::new();
+    if !kv.is_empty() {
+        let v = sum_nodes(&kv);
+        untracked.push(Node::agg(
+            "RocksDB block caches",
+            v,
+            "under the kv priority caches, not in any mempool",
+            kv,
+        ));
+    }
+    for (id, label) in [
+        (
+            "nocache:memtables",
+            "RocksDB memtables, default column family only",
+        ),
+        (
+            "nocache:sst_readers",
+            "RocksDB SST index/filter blocks, default column family only",
+        ),
+    ] {
+        if let Some(n) = Node::leaf_if(rows, id, label) {
+            untracked.push(n);
+        }
+    }
+    let residual_id = if has("heap:unattributed") {
+        "heap:unattributed"
+    } else if has("heap:rest") {
+        "heap:rest"
+    } else {
+        "anon:unattributed"
+    };
+    untracked.push(Node::leaf(
+        rows,
+        residual_id,
+        "not in any mempool (residual)",
+    ));
+    let untracked_v = sum_nodes(&untracked);
+    let untracked_node = Node::agg(
+        "untracked (heap_in_use - mempool_total)",
+        untracked_v,
+        "",
+        untracked,
+    );
+    // the heap
+    let in_use_children = vec![mempools_node, untracked_node];
+    let in_use_v = sum_nodes(&in_use_children);
+    let mut heap_children = Vec::new();
+    let heap_label;
+    let heap_v;
+    if has("heap:free") {
+        heap_children.push(Node::agg(
+            "in use by the application (heap_in_use)",
+            in_use_v,
+            "",
+            in_use_children,
+        ));
+        heap_children.push(Node::leaf(
+            rows,
+            "heap:free",
+            "allocator: free lists and metadata (allocator_overhead)",
+        ));
+        if let Some(n) = Node::leaf_if(rows, "ref:heap_nonresident", "held but not resident") {
+            heap_children.push(n);
+        }
+        heap_label = "heap (tcmalloc actual, resident part)";
+        heap_v = sum_nodes(&heap_children);
+    } else if has("heap:rest") {
+        heap_children = in_use_children;
+        heap_label = "heap (tuner's mapped bytes; no heap stats)";
+        heap_v = sum_nodes(&heap_children);
+    } else {
+        heap_children = in_use_children;
+        heap_label = "heap (no heap stats, no tuner view)";
+        heap_v = sum_nodes(&heap_children);
+    }
+    let mut anon_children = vec![Node::agg(heap_label, heap_v, "", heap_children)];
+    if let Some(n) = Node::leaf_if(
+        rows,
+        "anon:outside_heap",
+        "anon outside heap (stacks, other allocators)",
+    ) {
+        anon_children.push(n);
+    }
+    let anon_note = match (k.anon, sum_nodes(&anon_children)) {
+        (Some(an), Some(s)) if an != s => format!(
+            "RssAnon {}: children differ by {}",
+            b(Some(an)),
+            units::rate(Some(an as i64 - s as i64)).trim_end_matches("/s")
+        ),
+        _ => "RssAnon".into(),
+    };
+    let anon = Node::agg("anon", k.anon, &anon_note, anon_children);
+    let mut top = vec![anon];
+    if let Some(n) = Node::leaf_if(
+        rows,
+        "rss:file",
+        "file-backed (binary, libraries, mapped files)",
+    ) {
+        top.push(n);
+    }
+    if let Some(n) = Node::leaf_if(rows, "rss:shmem", "shared memory") {
+        top.push(n);
+    }
+    let _ = val;
+    top
+}
+
+/// The node's memory as a tree under MemTotal.
+fn node_tree(v: &View) -> Vec<Node> {
+    let rows = &v.node.rows;
+    let mut anon_children: Vec<Node> = rows
+        .iter()
+        .filter(|r| {
+            r.row.id.starts_with("anon:")
+                && !["anon:other", "anon:noproc", "anon:shared"].contains(&r.row.id.as_str())
+        })
+        .map(|r| Node::leaf(rows, &r.row.id, &r.row.label))
+        .collect();
+    let ceph_v = sum_nodes(&anon_children);
+    let n_ceph = anon_children.len();
+    let mut anon = vec![Node::agg(
+        "ceph daemons",
+        ceph_v,
+        &format!("{} daemons", n_ceph),
+        std::mem::take(&mut anon_children),
+    )];
+    for (id, label) in [
+        ("anon:other", "other processes"),
+        ("anon:noproc", "no process (exiting, or in no map)"),
+        ("anon:shared", "shared between processes (correction)"),
+    ] {
+        if let Some(n) = Node::leaf_if(rows, id, label) {
+            anon.push(n);
+        }
+    }
+    let anon_v = {
+        let mut t: i128 = 0;
+        let mut ok = true;
+        for n in &anon {
+            match (n.value, n.leaf.as_deref()) {
+                (Some(v), _) => t += v as i128,
+                (None, Some("anon:shared")) => {
+                    t += rows
+                        .iter()
+                        .find(|r| r.row.id == "anon:shared")
+                        .and_then(|r| r.row.signed)
+                        .unwrap_or(0) as i128
+                }
+                _ => ok = false,
+            }
+        }
+        if ok && t >= 0 {
+            Some(t as u64)
+        } else {
+            None
+        }
+    };
+    let mut top = Vec::new();
+    for (id, label) in [
+        ("node:free", "free"),
+        ("node:pagecache", "page cache (file)"),
+        ("node:shmem", "shmem / tmpfs"),
+        ("node:slab", "slab"),
+        ("node:kernel", "kernel stacks, page tables, percpu"),
+        ("node:hugepages", "huge pages (reserved)"),
+    ] {
+        if let Some(n) = Node::leaf_if(rows, id, label) {
+            top.push(n);
+        }
+    }
+    top.push(Node::agg("anon (AnonPages)", anon_v, "", anon));
+    top.push(Node::leaf(
+        rows,
+        "node:other",
+        "kernel, other (residual: vmalloc, drivers, DMA)",
+    ));
+    for (id, label) in [
+        ("ref:sockets", "socket buffers"),
+        ("ref:vmalloc", "vmalloc used"),
+    ] {
+        if let Some(n) = Node::leaf_if(rows, id, label) {
+            top.push(n);
+        }
+    }
+    top
+}
+
+fn tree_table(
+    title: String,
+    nodes: &[Node],
+    rows: &[TrackedRow],
+    whole: Option<u64>,
+    share_of: &str,
+    o: Opts,
+) -> Table {
+    let (header, widths) = tracked_header(o, share_of);
+    let mut flat = Vec::new();
+    flatten(nodes, "", &mut flat);
+    let mut out = Vec::new();
+    for (label, n) in flat {
+        let leaf = n
+            .leaf
+            .as_deref()
+            .and_then(|id| rows.iter().find(|r| r.row.id == id));
+        let mut cells = match leaf {
+            Some(r) => {
+                let mut c = tracked_cells(r, whole, o).cells;
+                c[0] = format!(
+                    "{}{}",
+                    if r.row.reference {
+                        "ref "
+                    } else if r.row.residual {
+                        "? "
+                    } else {
+                        ""
+                    },
+                    label
+                );
+                c
+            }
+            None => {
+                let mut c = vec![
+                    label,
+                    n.value
+                        .map(|v| units::bytes(Some(v)))
+                        .unwrap_or_else(|| "n/a".into()),
+                    match (n.value, whole) {
+                        (Some(v), Some(w)) => units::percent(v, w)
+                            .map(|p| format!("{}%", p))
+                            .unwrap_or_default(),
+                        _ => String::new(),
+                    },
+                    String::new(),
+                    String::new(),
+                ];
+                if o.peaks {
+                    c.push(String::new());
+                    c.push(String::new());
+                }
+                c.push(if o.raw { String::new() } else { n.note.clone() });
+                c
+            }
+        };
+        if cells[0].len() > 46 {
+            cells[0] = cells[0].chars().take(46).collect();
+        }
+        out.push(TableRow {
+            cells,
+            dim: n.reference,
+            warn: n.value.is_none()
+                && !n.reference
+                && leaf.map_or(true, |r| r.row.signed.is_none()),
+        });
+    }
+    Table {
+        title,
+        header,
+        widths,
+        rows: out,
+    }
+}
+
+pub fn daemon_tree_table(d: &DaemonView, o: Opts) -> Table {
+    let nodes = daemon_tree(d);
+    tree_table(
+        format!(
+            "{}: rss {} = ...",
+            d.account.name,
+            units::bytes(d.account.rss)
+        ),
+        &nodes,
+        &d.rows,
+        d.account.rss,
+        "%rss",
+        o,
+    )
+}
+
+pub fn node_tree_table(v: &View, o: Opts) -> Table {
+    let nodes = node_tree(v);
+    tree_table(
+        format!("node: MemTotal {} = ...", units::bytes(v.node.total)),
+        &nodes,
+        &v.node.rows,
+        v.node.total,
+        "%mem",
+        o,
+    )
 }

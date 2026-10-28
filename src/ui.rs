@@ -91,14 +91,18 @@ pub fn draw(f: &mut Frame, v: &View, ui: &Ui) {
 }
 
 fn footer(ui: &Ui, extra: &str) -> Paragraph<'static> {
-    let keys = format!("q quit  ?/h help  j/k move  Enter open  Esc back  r reset row peak  R reset all peaks  p peaks {}  x raw keys {}  {}  {}",
-        if ui.opts.peaks { "on" } else { "off" }, if ui.opts.raw { "on" } else { "off" }, extra, ui.message);
+    let keys = format!("q quit  ?/h help  j/k move  Enter open  Esc back  r reset row peak  R reset all peaks  p peaks {}  x raw keys {}  t {}  {}  {}",
+        if ui.opts.peaks { "on" } else { "off" }, if ui.opts.raw { "on" } else { "off" }, if ui.opts.tree { "tree" } else { "flat" }, extra, ui.message);
     Paragraph::new(Line::from(keys)).style(Style::default().add_modifier(Modifier::DIM))
 }
 
 fn draw_node(f: &mut Frame, area: Rect, v: &View, ui: &Ui) {
     let summary = render::node_summary(v);
-    let nt = render::node_table(v, ui.opts);
+    let nt = if ui.opts.tree {
+        render::node_tree_table(v, ui.opts)
+    } else {
+        render::node_table(v, ui.opts)
+    };
     let dt = render::daemons_table(v, ui.opts);
     let chunks = Layout::vertical([
         Constraint::Length(summary.len() as u16 + 2),
@@ -140,7 +144,11 @@ fn draw_node(f: &mut Frame, area: Rect, v: &View, ui: &Ui) {
 
 fn draw_daemon(f: &mut Frame, area: Rect, v: &View, d: &crate::state::DaemonView, ui: &Ui) {
     let summary = render::daemon_summary(d, v.sampling_ms);
-    let t = render::daemon_table(d, ui.opts);
+    let t = if ui.opts.tree {
+        render::daemon_tree_table(d, ui.opts)
+    } else {
+        render::daemon_table(d, ui.opts)
+    };
     let chunks = Layout::vertical([
         Constraint::Length(summary.len() as u16 + 2),
         Constraint::Min(5),
@@ -263,7 +271,7 @@ fn draw_help(f: &mut Frame, area: Rect) {
         peak:kernel = VmHWM / memory.peak, recorded by the kernel; correct regardless of when the tool started\n\
         peaks never add up: the parts peak at different moments. Only current values reconcile.\n\n\
         keys: j/k or arrows move, Enter opens a daemon, Esc goes back, r resets the selected row's seen peak,\n\
-        R resets all seen peaks, p toggles peak columns, x shows raw source keys, g queries per-PG pglog (OSD), q quits.";
+        R resets all seen peaks, p toggles peak columns, x shows raw source keys, t tree/flat rows, g queries per-PG pglog (OSD), q quits.";
     let w = area.width.min(110);
     let h = area.height.min(18);
     let r = Rect {
