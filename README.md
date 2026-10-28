@@ -63,6 +63,7 @@ buffers and vmalloc are shown as reference rows: real, but inside slab and "othe
 | RocksDB memtables | `dump_objectstore_kv_stats` `rocksdb_memtable_usage`: needs `rocksdb_perf` and `rocksdb_collect_memory_stats` (`--enable-kv-stats`); see the limits below |
 | RocksDB SST index/filter blocks | the same dump, `rocksdb_index_filter_blocks_usage` |
 | RocksDB WAL alive (reference) | `bluefs files list`, the sizes under `db.wal/`: a WAL file lives until every column family flushed its entries, so the memtables cannot exceed it by much |
+| PG log beyond the mempool count (reference, estimate) | `osd_pglog` items and bytes solved into entries and dups; 233 B per entry and 74 B per dup over the counted 552 and 104, measured with a heap profile: index maps, list nodes, size-class rounding |
 | PG log, OSD maps, allocator, in-flight writes, BlueFS, buffers, other | mempools by group (`--raw` shows the keys) |
 | heap, not in any mempool | tcmalloc "in use by application" minus the rows above |
 | allocator: free lists and metadata | tcmalloc "actual" minus "in use" |

@@ -516,6 +516,22 @@ pub struct DaemonAccount {
     pub problems: Vec<String>,
 }
 
+/// The PG log's cost beyond its mempool count, from the pool's items and bytes. The mempool
+/// counts 552 B per entry and 104 B per dup; the heap holds about 785 and 178 (the index maps,
+/// list nodes and allocator size classes), measured with a heap profile on main with tcmalloc.
+fn pglog_uncounted(d: &RawDaemon) -> Option<u64> {
+    let pool = d.mempools.as_ref()?.pointer("/mempool/by_pool/osd_pglog")?;
+    let items = pool.get("items")?.as_f64()?;
+    let bytes = pool.get("bytes")?.as_f64()?;
+    if items <= 0.0 {
+        return Some(0);
+    }
+    // bytes = 552 E + 104 D and items = E + D
+    let dups = ((552.0 * items - bytes) / (552.0 - 104.0)).clamp(0.0, items);
+    let entries = items - dups;
+    Some((233.0 * entries + 74.0 * dups) as u64)
+}
+
 /// The live RocksDB WAL bytes: the sizes of the BlueFS files under db.wal/.
 fn wal_alive(d: &RawDaemon) -> Option<u64> {
     let files = d.bluefs_files.as_ref()?.as_array()?;
@@ -804,6 +820,19 @@ pub fn daemon_account(d: &RawDaemon, p: Option<&ProcInfo>, s: &RawSample) -> Dae
         rows.push(
             group("nocache:pglog", "PG log (entries and dups)", PGLOG_POOLS)
                 .note("mempool counts 552 B/entry, 104 B/dup; real ~785 and 178"),
+        );
+        rows.push(
+            Row::new(
+                "ref:pglog_uncounted",
+                "PG log beyond the mempool count (estimate)",
+                pglog_uncounted(d),
+                "osd_pglog items and bytes: 233 B/entry + 74 B/dup over the counted 552/104",
+            )
+            .reference()
+            .optional()
+            .note(
+                "index maps, list nodes, size-class rounding; sits in 'heap, not in any mempool'",
+            ),
         );
     }
     rows.push(group("nocache:osdmap", "OSD maps", OSDMAP_POOLS));
@@ -1609,6 +1638,22 @@ mod tests {
             .unwrap()
             .note;
         assert!(n.contains("all column families with the"), "{}", n);
+    }
+
+    #[test]
+    fn the_pg_log_cost_beyond_the_mempool_count_is_estimated_from_items_and_bytes() {
+        let (mut d, p, s) = osd_sample(true);
+        let by = |a: &DaemonAccount, id: &str| a.rows.iter().find(|r| r.id == id).unwrap().clone();
+        // 10 items of 100 bytes cannot be entries at all: all dups
+        let a = daemon_account(&d, Some(&p), &s);
+        assert_eq!(by(&a, "ref:pglog_uncounted").value, Some(740));
+        assert!(by(&a, "ref:pglog_uncounted").reference);
+        assert_eq!(a.sum, Some(1000));
+        // 100 entries, no dups
+        d.mempools.as_mut().unwrap()["mempool"]["by_pool"]["osd_pglog"] =
+            serde_json::json!({"items": 100, "bytes": 55200});
+        let a = daemon_account(&d, Some(&p), &s);
+        assert_eq!(by(&a, "ref:pglog_uncounted").value, Some(23300));
     }
 
     #[test]

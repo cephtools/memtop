@@ -710,6 +710,10 @@ fn daemon_tree(d: &DaemonView) -> Vec<Node> {
         ("nocache:memtables", "RocksDB memtables"),
         ("nocache:sst_readers", "RocksDB SST index/filter blocks"),
         ("ref:wal_alive", "RocksDB WAL alive (BlueFS db.wal)"),
+        (
+            "ref:pglog_uncounted",
+            "PG log beyond the mempool count (estimate)",
+        ),
     ] {
         if let Some(n) = Node::leaf_if(rows, id, label) {
             untracked.push(n);
