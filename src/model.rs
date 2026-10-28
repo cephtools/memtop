@@ -425,9 +425,81 @@ pub fn parse_heap_stats(text: &str) -> Option<HeapStats> {
     })
 }
 
+/// What the kernel and the cgroup say about the daemon.
+#[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq)]
+pub struct KernelSide {
+    pub pid: Option<u32>,
+    pub threads: Option<u64>,
+    /// /proc/PID/status VmRSS, RssAnon, RssFile, RssShmem, VmHWM
+    pub rss: Option<u64>,
+    pub anon: Option<u64>,
+    pub file: Option<u64>,
+    pub shmem: Option<u64>,
+    pub hwm: Option<u64>,
+    pub cgroup_path: Option<String>,
+    pub cgroup_current: Option<u64>,
+    pub cgroup_max: Option<u64>,
+    pub cgroup_peak: Option<u64>,
+    /// Processes in the cgroup: more than one means the figures are not the daemon's alone.
+    pub cgroup_procs: Option<usize>,
+}
+
+/// What the daemon says about itself, and the three derived figures:
+///   untracked          = heap_in_use - mempool_total
+///   allocator_overhead = heap_actual - heap_in_use
+///   non_heap           = rss - heap_actual
+/// so that rss = mempool_total + untracked + allocator_overhead + non_heap.
+#[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq)]
+pub struct CephSide {
+    pub target_key: Option<String>,
+    /// The configured target (osd_memory_target, mon_memory_target, mds_cache_memory_limit).
+    pub target: Option<u64>,
+    /// The target the priority-cache tuner is using (perf dump target_bytes).
+    pub tuner_target: Option<u64>,
+    /// dump_mempools .mempool.total.bytes
+    pub mempool_total: Option<u64>,
+    /// heap stats "Bytes in use by application"
+    pub heap_in_use: Option<u64>,
+    /// heap stats "Actual memory used"
+    pub heap_actual: Option<u64>,
+    /// heap_in_use - mempool_total; None when negative (the inputs disagree).
+    pub untracked: Option<u64>,
+    /// heap_actual - heap_in_use
+    pub allocator_overhead: Option<u64>,
+    /// rss - heap_actual; None when negative (heap pages held but not resident).
+    pub non_heap: Option<u64>,
+    /// Usage under the priority caches: data and meta mempools plus the RocksDB block caches.
+    pub caches_used: Option<u64>,
+    /// mempool_total minus the data and meta cache mempools.
+    pub uncached_mempool: Option<u64>,
+    /// The tuner's own view of the heap (perf dump mapped_bytes, unmapped_bytes).
+    pub tuner_mapped: Option<u64>,
+    pub tuner_unmapped: Option<u64>,
+    /// What the mempool rows add up to, to check against mempool_total.
+    pub mempool_rows: Option<u64>,
+}
+
+/// One cross-check between two sources. `hard` ones must hold; a failure is a problem and fails
+/// --check. Soft ones explain a difference.
+#[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq)]
+pub struct Match {
+    pub what: String,
+    pub ok: bool,
+    pub hard: bool,
+    pub detail: String,
+}
+
+fn close(a: u64, b: u64, pct: u64, abs: u64) -> bool {
+    let d = a.abs_diff(b);
+    d <= abs || d as u128 * 100 <= (a.max(b) as u128) * pct as u128
+}
+
 /// One daemon's accounting: rows that sum to its RSS, plus the reference figures.
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 pub struct DaemonAccount {
+    pub kernel: KernelSide,
+    pub ceph: CephSide,
+    pub matches: Vec<Match>,
     pub name: String,
     pub kind: String,
     pub pid: Option<u32>,
@@ -619,36 +691,39 @@ pub fn daemon_account(d: &RawDaemon, p: Option<&ProcInfo>, s: &RawSample) -> Dae
     let memtable = kv_num("rocksdb_memtable_usage");
     let sst_readers = kv_num("rocksdb_index_filter_blocks_usage");
     if d.kind == "osd" {
-        // only the OSD exports it (dump_objectstore_kv_stats); unknown, it sits in the heap residual
+        // only the OSD exports these (dump_objectstore_kv_stats), and only for RocksDB's default
+        // column family: RocksDBStore::get_statistics calls DB::GetProperty without a handle, so
+        // on a sharded OSD (O, L, P, M... families) the figure misses nearly everything. Shown as
+        // what it is; the rest sits in the heap residual.
         let r = Row::new(
             "nocache:memtables",
-            "RocksDB memtables (all column families)",
+            "RocksDB memtables, default column family only",
             memtable,
             "dump_objectstore_kv_stats rocksdb_memtable_usage",
         )
         .optional();
         rows.push(if memtable.is_none() {
-            r.note("n/a: inside 'heap, not in any mempool'; --enable-kv-stats reads it")
+            r.note("n/a: in 'heap, not in any mempool'; --enable-kv-stats reads it")
         } else {
-            r
+            r.note("sharded families (O, L, P, M) are not reported: they sit in 'heap, not in any mempool'")
         });
         let r = Row::new(
             "nocache:sst_readers",
-            "RocksDB SST index and filter blocks outside the cache",
+            "RocksDB SST index/filter blocks, default column family only",
             sst_readers,
             "dump_objectstore_kv_stats rocksdb_index_filter_blocks_usage",
         )
         .optional();
         rows.push(if sst_readers.is_none() {
-            r.note("n/a: inside 'heap, not in any mempool'")
+            r.note("n/a: in 'heap, not in any mempool'")
         } else {
-            r
+            r.note("other families not reported")
         });
     }
     if d.kind == "osd" {
         rows.push(
             group("nocache:pglog", "PG log (entries and dups)", PGLOG_POOLS)
-                .note("mempool undercounts: ~785 B/entry, 178 B/dup real"),
+                .note("mempool counts 552 B/entry, 104 B/dup; real ~785 and 178"),
         );
     }
     rows.push(group("nocache:osdmap", "OSD maps", OSDMAP_POOLS));
@@ -663,7 +738,7 @@ pub fn daemon_account(d: &RawDaemon, p: Option<&ProcInfo>, s: &RawSample) -> Dae
     }
     rows.push(group(
         "nocache:buffers",
-        "buffers, unattributed (messages, bufferlists)",
+        "buffers (messages, bufferlists)",
         BUFFER_POOLS,
     ));
     let rest: Vec<&str> = pools
@@ -698,7 +773,16 @@ pub fn daemon_account(d: &RawDaemon, p: Option<&ProcInfo>, s: &RawSample) -> Dae
             let in_use_res = heap_resident - free_res;
             let un = in_use_res as i128 - attributed as i128;
             if un >= 0 && have_pools {
-                rows.push(Row::new("heap:unattributed", "heap, not in any mempool", Some(un as u64), "tcmalloc in use - rows above").note("RocksDB (memtables if n/a above, SST readers), the pglog undercount, C++ objects").residual());
+                rows.push(
+                    Row::new(
+                        "heap:unattributed",
+                        "heap, not in any mempool",
+                        Some(un as u64),
+                        "tcmalloc in use - rows above",
+                    )
+                    .note("RocksDB, the pglog undercount, C++ objects")
+                    .residual(),
+                );
             } else if have_pools {
                 rows.push(
                     Row::new(
@@ -743,7 +827,7 @@ pub fn daemon_account(d: &RawDaemon, p: Option<&ProcInfo>, s: &RawSample) -> Dae
                 rows.push(
                     Row::new(
                         "ref:heap_nonresident",
-                        "heap pages not resident (held, untouched)",
+                        "heap held but not resident",
                         Some(nonres),
                         "tcmalloc actual - RssAnon",
                     )
@@ -754,7 +838,7 @@ pub fn daemon_account(d: &RawDaemon, p: Option<&ProcInfo>, s: &RawSample) -> Dae
                 Some(an) => rows.push(
                     Row::new(
                         "anon:outside_heap",
-                        "anon outside the heap (stacks, other allocators)",
+                        "anon outside heap (stacks, other allocators)",
                         Some(an - heap_resident),
                         "RssAnon - resident heap",
                     )
@@ -779,7 +863,7 @@ pub fn daemon_account(d: &RawDaemon, p: Option<&ProcInfo>, s: &RawSample) -> Dae
                 rows.push(
                     Row::new(
                         "heap:rest",
-                        "heap, not in any mempool, plus allocator free lists",
+                        "heap not in any mempool + allocator free lists",
                         Some(un as u64),
                         "pricache mapped_bytes - rows above",
                     )
@@ -912,8 +996,220 @@ pub fn daemon_account(d: &RawDaemon, p: Option<&ProcInfo>, s: &RawSample) -> Dae
     {
         a.problems.extend(d.errors.iter().cloned());
     }
+    sides(&mut a, &rows, d, p, perf, pricache, have_pools);
     a.rows = rows;
     a
+}
+
+/// The kernel side, the Ceph side, and the checks between them.
+fn sides(
+    a: &mut DaemonAccount,
+    rows: &[Row],
+    d: &RawDaemon,
+    p: Option<&ProcInfo>,
+    perf: Option<&serde_json::Value>,
+    pricache: &str,
+    have_pools: bool,
+) {
+    let row = |id: &str| rows.iter().find(|r| r.id == id).and_then(|r| r.value);
+    let sum_rows = |ids: &[&str]| -> Option<u64> {
+        let mut t = 0u64;
+        let mut any = false;
+        for id in ids {
+            if let Some(v) = row(id) {
+                t += v;
+                any = true;
+            }
+        }
+        if any {
+            Some(t)
+        } else {
+            None
+        }
+    };
+    a.kernel = KernelSide {
+        pid: d.pid,
+        threads: p.and_then(|p| p.threads),
+        rss: p.and_then(|p| p.rss),
+        anon: p.and_then(|p| p.rss_anon),
+        file: p.and_then(|p| p.rss_file),
+        shmem: p.and_then(|p| p.rss_shmem),
+        hwm: p.and_then(|p| p.vm_hwm),
+        cgroup_path: a.cgroup.as_ref().map(|c| c.path.clone()),
+        cgroup_current: a.cgroup.as_ref().and_then(|c| c.current),
+        cgroup_max: a.cgroup.as_ref().and_then(|c| c.max),
+        cgroup_peak: a.cgroup.as_ref().and_then(|c| c.peak),
+        cgroup_procs: a.cgroup.as_ref().and_then(|c| c.nprocs),
+    };
+    let mempool_total = d
+        .mempools
+        .as_ref()
+        .and_then(|m| m.pointer("/mempool/total/bytes"))
+        .and_then(|v| v.as_u64());
+    let heap_in_use = a.heap.as_ref().map(|h| h.in_use);
+    let heap_actual = a.heap.as_ref().map(|h| h.actual);
+    let rss = a.kernel.rss;
+    let cache_pools = sum_rows(&["cache:data", "cache:meta"]);
+    let sub = |x: Option<u64>, y: Option<u64>| -> Option<Option<u64>> {
+        // Some(None): known, but negative
+        match (x, y) {
+            (Some(x), Some(y)) => Some(if x >= y { Some(x - y) } else { None }),
+            _ => None,
+        }
+    };
+    let untracked = sub(heap_in_use, mempool_total);
+    let overhead = sub(heap_actual, heap_in_use);
+    let non_heap = sub(rss, heap_actual);
+    a.ceph = CephSide {
+        target_key: a.target.as_ref().map(|t| t.0.clone()),
+        target: a.target.as_ref().map(|t| t.1),
+        tuner_target: perf.and_then(|p| perf_u64(p, pricache, "target_bytes")),
+        mempool_total,
+        heap_in_use,
+        heap_actual,
+        untracked: untracked.flatten(),
+        allocator_overhead: overhead.flatten(),
+        non_heap: non_heap.flatten(),
+        caches_used: sum_rows(&["cache:data", "cache:meta", "cache:kv", "cache:kv_onode"]),
+        uncached_mempool: match (mempool_total, cache_pools) {
+            (Some(t), Some(c)) => Some(t.saturating_sub(c)),
+            (Some(t), None) => Some(t),
+            _ => None,
+        },
+        tuner_mapped: perf
+            .and_then(|p| perf_u64(p, pricache, "mapped_bytes"))
+            .filter(|v| *v > 0),
+        tuner_unmapped: perf.and_then(|p| perf_u64(p, pricache, "unmapped_bytes")),
+        mempool_rows: if have_pools {
+            sum_rows(&[
+                "cache:data",
+                "cache:meta",
+                "nocache:pglog",
+                "nocache:osdmap",
+                "nocache:alloc",
+                "nocache:writes",
+                "nocache:bluefs",
+                "nocache:buffers",
+                "nocache:other",
+            ])
+        } else {
+            None
+        },
+    };
+    let c = &a.ceph;
+    let k = &a.kernel;
+    let b = crate::units::bytes;
+    let mut m = Vec::new();
+    // the identity between the two sides
+    if let (Some(r), Some(mt), Some(_), Some(_)) = (rss, mempool_total, heap_in_use, heap_actual) {
+        let (ok, detail) = match (untracked, overhead, non_heap) {
+            (Some(Some(u)), Some(Some(o)), Some(Some(n))) => (
+                mt + u + o + n == r,
+                format!(
+                    "{} = {} + {} + {} + {}",
+                    b(Some(r)),
+                    b(Some(mt)),
+                    b(Some(u)),
+                    b(Some(o)),
+                    b(Some(n))
+                ),
+            ),
+            (Some(None), _, _) => (
+                false,
+                format!(
+                    "heap_in_use {} < mempool_total {}: mempools claim more than the heap holds",
+                    b(heap_in_use),
+                    b(Some(mt))
+                ),
+            ),
+            (_, Some(None), _) => (
+                false,
+                format!(
+                    "heap_actual {} < heap_in_use {}",
+                    b(heap_actual),
+                    b(heap_in_use)
+                ),
+            ),
+            (_, _, Some(None)) => (
+                false,
+                format!(
+                    "heap_actual {} > rss {}: {} of the heap is not resident",
+                    b(heap_actual),
+                    b(Some(r)),
+                    b(Some(heap_actual.unwrap() - r))
+                ),
+            ),
+            _ => (false, "an input is missing".into()),
+        };
+        m.push(Match {
+            what: "rss = mempool_total + untracked + allocator_overhead + non_heap".into(),
+            ok,
+            hard: true,
+            detail,
+        });
+    }
+    if let (Some(x), Some(y)) = (c.mempool_rows, c.mempool_total) {
+        m.push(Match {
+            what: "mempool rows = dump_mempools total".into(),
+            ok: x == y,
+            hard: true,
+            detail: format!("{} vs {}", b(Some(x)), b(Some(y))),
+        });
+    }
+    if let (Some(x), Some(y)) = (c.tuner_mapped, c.heap_actual) {
+        // the same tcmalloc counters, but the tuner samples them on its own timer (the cache
+        // resize interval), so its view lags the heap stats by up to a few seconds
+        m.push(Match {
+            what: "tuner mapped = tcmalloc actual".into(),
+            ok: close(x, y, 10, 8 << 20),
+            hard: false,
+            detail: format!(
+                "{} vs {}{}",
+                b(Some(x)),
+                b(Some(y)),
+                if close(x, y, 10, 8 << 20) {
+                    ""
+                } else {
+                    ": the tuner's view is stale or reads another heap"
+                }
+            ),
+        });
+    }
+    if let (Some(x), Some(y)) = (c.target, c.tuner_target) {
+        m.push(Match {
+            what: "configured target = tuner target".into(),
+            ok: x == y,
+            hard: false,
+            detail: if x == y { b(Some(x)) } else { format!("{} vs {}: the tuner was given another target (cgroup limit ratio, or a runtime change)", b(Some(x)), b(Some(y))) },
+        });
+    }
+    if let (Some(cg), Some(an), Some(1)) = (k.cgroup_current, k.anon, k.cgroup_procs) {
+        m.push(Match {
+            what: "cgroup current covers rss anon".into(),
+            ok: cg >= an,
+            hard: false,
+            detail: if cg >= an {
+                format!(
+                    "{} charged, {} anon: {} is file cache and kernel memory charged to it",
+                    b(Some(cg)),
+                    b(Some(an)),
+                    b(Some(cg - an))
+                )
+            } else {
+                format!(
+                    "{} charged < {} anon: not this process's cgroup?",
+                    b(Some(cg)),
+                    b(Some(an))
+                )
+            },
+        });
+    }
+    for x in &m {
+        if !x.ok && x.hard {
+            a.problems.push(format!("{}: {}", x.what, x.detail));
+        }
+    }
+    a.matches = m;
 }
 
 #[cfg(test)]
@@ -1051,7 +1347,7 @@ mod tests {
 
     fn osd_sample(heap: bool) -> (RawDaemon, ProcInfo, RawSample) {
         let perf = serde_json::json!({
-            "bluestore-pricache": {"target_bytes": 2000, "mapped_bytes": 700, "unmapped_bytes": 1, "heap_bytes": 701},
+            "bluestore-pricache": {"target_bytes": 2000, "mapped_bytes": 600, "unmapped_bytes": 1, "heap_bytes": 601},
             "bluestore-pricache:data": {"committed_bytes": 100}, "bluestore-pricache:meta": {"committed_bytes": 100},
             "bluestore-pricache:kv": {"committed_bytes": 100}, "bluestore-pricache:kv_onode": {"committed_bytes": 100},
             "rocksdb-cache-default": {"usage": 30}, "rocksdb-cache-O": {"usage": 10}, "rocksdb": {}
@@ -1124,9 +1420,80 @@ mod tests {
         assert!(a.problems.is_empty(), "{:?}", a.problems);
         assert_eq!(a.sum, Some(1000));
         let by = |id: &str| a.rows.iter().find(|r| r.id == id).unwrap().value;
-        assert_eq!(by("heap:rest"), Some(700 - 253));
-        assert_eq!(by("anon:outside_heap"), Some(100));
+        assert_eq!(by("heap:rest"), Some(600 - 253));
+        assert_eq!(by("anon:outside_heap"), Some(200));
         assert!(a.rows.iter().all(|r| r.id != "heap:free"));
+    }
+
+    #[test]
+    fn the_two_sides_match_and_mismatches_are_named() {
+        let (d, p, s) = osd_sample(true);
+        let a = daemon_account(&d, Some(&p), &s);
+        assert!(a.problems.is_empty(), "{:?}", a.problems);
+        assert_eq!(
+            (a.kernel.rss, a.kernel.anon, a.kernel.hwm),
+            (Some(1000), Some(800), Some(1200))
+        );
+        let c = &a.ceph;
+        assert_eq!(
+            (c.mempool_total, c.heap_in_use, c.heap_actual),
+            (Some(213), Some(500), Some(600))
+        );
+        assert_eq!(c.untracked, Some(500 - 213));
+        assert_eq!(c.allocator_overhead, Some(100));
+        assert_eq!(c.non_heap, Some(400));
+        assert_eq!(c.caches_used, Some(50 + 25 + 30 + 10));
+        assert_eq!(c.uncached_mempool, Some(213 - 75));
+        assert_eq!(c.mempool_rows, Some(213));
+        assert!(a.matches.iter().all(|m| m.ok), "{:?}", a.matches);
+        let id = a
+            .matches
+            .iter()
+            .find(|m| m.what.starts_with("rss = mempool_total"))
+            .unwrap();
+        assert!(
+            id.hard && id.detail.starts_with("1000B = 213B + 287B + 100B + 400B"),
+            "{}",
+            id.detail
+        );
+        // the tuner's target differs from the config: soft, explained, not a problem
+        let mut d2 = d.clone();
+        d2.perf.as_mut().unwrap()["bluestore-pricache"]["target_bytes"] = serde_json::json!(1500);
+        let a2 = daemon_account(&d2, Some(&p), &s);
+        let t = a2
+            .matches
+            .iter()
+            .find(|m| m.what == "configured target = tuner target")
+            .unwrap();
+        assert!(!t.ok && !t.hard && t.detail.contains("cgroup"));
+        assert!(a2.problems.is_empty());
+        // the tuner's heap view disagrees with tcmalloc: soft, explained
+        let mut d3 = d.clone();
+        d3.perf.as_mut().unwrap()["bluestore-pricache"]["mapped_bytes"] =
+            serde_json::json!(50_000_000u64);
+        let a3 = daemon_account(&d3, Some(&p), &s);
+        let t = a3
+            .matches
+            .iter()
+            .find(|m| m.what == "tuner mapped = tcmalloc actual")
+            .unwrap();
+        assert!(!t.ok && !t.hard && t.detail.contains("stale"), "{:?}", t);
+        assert!(a3.problems.is_empty());
+        // heap larger than rss: the identity cannot hold and says why
+        let mut p4 = p.clone();
+        p4.rss = Some(550);
+        let a4 = daemon_account(&d, Some(&p4), &s);
+        let id = a4
+            .matches
+            .iter()
+            .find(|m| m.what.starts_with("rss = mempool_total"))
+            .unwrap();
+        assert!(
+            !id.ok && id.detail.contains("not resident"),
+            "{}",
+            id.detail
+        );
+        assert_eq!(a4.ceph.non_heap, None);
     }
 
     #[test]

@@ -207,6 +207,7 @@ fn plain_text(v: &state::View, o: render::Opts) -> String {
     s.push_str(&render::plain(&render::node_table(v, o)));
     s.push_str(&render::plain(&render::daemons_table(v, o)));
     for d in &v.daemons {
+        s.push('\n');
         for l in render::daemon_summary(d, v.sampling_ms) {
             s.push_str(&l);
             s.push('\n');

@@ -43,13 +43,33 @@ buffers and vmalloc are shown as reference rows: real, but inside slab and "othe
 | cache: meta | the eight mempools BlueStore's meta cache counts (`BlueStore.h` `MetaCache::_get_used_bytes`) |
 | cache: kv, kv_onode | `rocksdb-cache-default.usage`, `rocksdb-cache-O.usage` (perf dump) |
 | budget per cache | `*-pricache:<cache>.committed_bytes` |
-| RocksDB memtables | `dump_objectstore_kv_stats` `rocksdb_memtable_usage`: needs `rocksdb_perf` and `rocksdb_collect_memory_stats` (`--enable-kv-stats`) |
-| RocksDB SST index/filter blocks | the same dump, `rocksdb_index_filter_blocks_usage` |
+| RocksDB memtables, default column family only | `dump_objectstore_kv_stats` `rocksdb_memtable_usage`: needs `rocksdb_perf` and `rocksdb_collect_memory_stats` (`--enable-kv-stats`); see the limits below |
+| RocksDB SST index/filter blocks, default column family only | the same dump, `rocksdb_index_filter_blocks_usage` |
 | PG log, OSD maps, allocator, in-flight writes, BlueFS, buffers, other | mempools by group (`--raw` shows the keys) |
 | heap, not in any mempool | tcmalloc "in use by application" minus the rows above |
 | allocator: free lists and metadata | tcmalloc "actual" minus "in use" |
 | anon outside the heap | `RssAnon` minus the resident heap |
 | file-backed, shared memory | `RssFile`, `RssShmem` |
+
+The daemon summary has two sections that must agree. **kernel**: RSS split into anon, file and
+shmem, VmHWM, threads, and the cgroup's current, max and peak. **ceph**: the configured target
+(and the tuner's, when it differs), and
+
+```
+mempool_total      = dump_mempools .mempool.total.bytes   (caches + un-cached)
+heap_in_use        = heap stats "Bytes in use by application"
+heap_actual        = heap stats "Actual memory used"       (the tuner's mapped/unmapped view beside it)
+untracked          = heap_in_use - mempool_total
+allocator_overhead = heap_actual - heap_in_use
+non_heap           = rss - heap_actual
+```
+
+The **match** line checks the two sides against each other: rss = mempool_total + untracked +
+allocator_overhead + non_heap, and the mempool rows equal the dump's total (hard: a failure is a
+problem and fails `--check`); the tuner's mapped bytes equal tcmalloc's actual within 10 % (the
+tuner samples on its own timer), the configured target equals the tuner's, and a dedicated cgroup
+charges at least the anon memory (soft: a difference is explained). A derived figure that comes out negative is `n/a` and the match says
+which input is off, e.g. heap pages held but not resident.
 
 Rows marked `?` are residuals, `ref` rows are not summed. Without tcmalloc the heap rows merge
 into "heap, not in any mempool, plus allocator free lists" from the priority cache's
@@ -103,9 +123,25 @@ shown but not tracked, and that unknown values stay blank.
 Not yet covered by a recorded fixture: a production (cephadm) node, other Ceph releases, a build
 without tcmalloc, MDS and RGW daemons. `--record` on such a host produces one.
 
+## Verification under load
+
+`scripts/verify-workloads.py --bin ./ceph-memtop --asok-dir <dir> --dev /dev/rbd0` runs idle, 4K
+random write, 4K random read and 1M sequential read with fio while ceph-memtop records one sample
+per second, reads /proc, the cgroup and the admin sockets itself twice per workload, compares those
+readings with the sample memtop recorded at that second, and replays every recording through
+`--check`. On the c28 vstart (mon, mgr, four OSDs, main 21.3.0, 2026-10-28): 224 comparisons, the
+worst difference 2.7 % (reads a second apart under write load, 0.4 % otherwise), 120 samples
+checked, none failed. The pg log grew from 7 to 17 MiB per OSD under random writes, the data cache
+from 0 to 290 MiB under random reads, and RSS followed, with both kinds of peak tracking it.
+
 ## Known limits
 
-* Ceph exports memtable usage as one total; per column family would need a daemon change.
+* Ceph reports RocksDB memtable and SST-reader usage for the default column family only
+  (`RocksDBStore::get_statistics` calls `DB::GetProperty` without a column family handle): the
+  figure stayed at 2 KiB through a 30 s write load on c28. On a sharded OSD the memtables of the
+  O, L, P and M families, hundreds of MiB under write load, are therefore inside "heap, not in any
+  mempool" (and in `untracked`). Reporting them needs a daemon change (`GetAggregatedIntProperty`,
+  or one property per handle).
 * The mon's full/inc osdmap caches report their size but their bytes live in the mempool rows, so
   they are shown as reference rows.
 * A process's `RssAnon` is attributed whole; THP and page-table sharing are not corrected.

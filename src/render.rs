@@ -2,15 +2,6 @@
 
 use crate::state::{DaemonView, TrackedRow, View};
 
-trait RowId {
-    fn id_is(&self, id: &str) -> bool;
-}
-
-impl RowId for TrackedRow {
-    fn id_is(&self, id: &str) -> bool {
-        self.row.id == id
-    }
-}
 use crate::units;
 
 pub struct Table {
@@ -293,41 +284,26 @@ pub fn daemon_table(d: &DaemonView, o: Opts) -> Table {
     }
 }
 
-/// The accounting in one line, before any detail.
+/// The accounting in a few aligned lines, before any detail.
 pub fn node_summary(v: &View) -> Vec<String> {
     let mut out = Vec::new();
     let n = &v.node;
+    let b = units::bytes;
     let get = |id: &str| {
         n.rows
             .iter()
             .find(|r| r.row.id == id)
             .and_then(|r| r.row.value)
     };
-    let ceph: u64 = n
+    let ceph_rows: Vec<&TrackedRow> = n
         .rows
         .iter()
         .filter(|r| {
             r.row.id.starts_with("anon:")
                 && !["anon:other", "anon:noproc", "anon:shared"].contains(&r.row.id.as_str())
         })
-        .filter_map(|r| r.row.value)
-        .sum();
-    out.push(format!(
-        "MemTotal {} = free {} + page cache {} + shmem {} + slab {} + kernel {} + anon (ceph {}, other {}, none {}) + other {}",
-        units::bytes(n.total),
-        units::bytes(get("node:free")),
-        units::bytes(get("node:pagecache")),
-        units::bytes(get("node:shmem")),
-        units::bytes(get("node:slab")),
-        units::bytes(get("node:kernel")),
-        units::bytes(Some(ceph)),
-        units::bytes(get("anon:other")),
-        match n.rows.iter().find(|r| r.id_is("anon:shared")) {
-            Some(r) => format!("shared {}", units::rate(r.row.signed).trim_end_matches("/s")),
-            None => units::bytes(get("anon:noproc")),
-        },
-        units::bytes(get("node:other")),
-    ));
+        .collect();
+    let ceph: u64 = ceph_rows.iter().filter_map(|r| r.row.value).sum();
     let readable = v
         .daemons
         .iter()
@@ -340,96 +316,202 @@ pub fn node_summary(v: &View) -> Vec<String> {
         .map(|d| d.account.name.clone())
         .collect();
     out.push(format!(
-        "residual {}% of MemTotal | sampling {} (observed peaks resolve to this) | daemons readable {}{}{}",
-        n.residual_pct.map(|p| p.to_string()).unwrap_or_else(|| "?".into()),
-        v.sampling_ms.map(|m| format!("{:.1} s", m as f64 / 1000.0)).unwrap_or_else(|| "first sample".into()),
+        "node     MemTotal {} | residual {} ({}%) | sampling {} | daemons {} readable{}{}",
+        b(n.total),
+        b(get("node:other")),
+        n.residual_pct
+            .map(|p| p.to_string())
+            .unwrap_or_else(|| "?".into()),
+        v.sampling_ms
+            .map(|m| format!("{:.1} s", m as f64 / 1000.0))
+            .unwrap_or_else(|| "first sample".into()),
         readable,
-        if unreadable.is_empty() { String::new() } else { format!(", not readable: {}", unreadable.join(" ")) },
+        if unreadable.is_empty() {
+            String::new()
+        } else {
+            format!(", not readable: {}", unreadable.join(" "))
+        },
         if n.degraded { " | DEGRADED SAMPLE" } else { "" }
     ));
+    let anon_all = get("AnonPages").or_else(|| {
+        let s: u64 = n
+            .rows
+            .iter()
+            .filter(|r| r.row.id.starts_with("anon:"))
+            .filter_map(|r| r.row.contribution())
+            .map(|x| x.max(0) as u64)
+            .sum();
+        Some(s)
+    });
+    out.push(format!(
+        "memory   free {} + page cache {} + shmem {} + slab {} + kernel {} + anon {} + other {} = {}",
+        b(get("node:free")),
+        b(get("node:pagecache")),
+        b(get("node:shmem")),
+        b(get("node:slab")),
+        b(get("node:kernel")),
+        b(anon_all),
+        b(get("node:other")),
+        b(n.total)
+    ));
+    let none = match n.rows.iter().find(|r| r.row.id == "anon:shared") {
+        Some(r) => format!(
+            "shared between processes {}",
+            units::rate(r.row.signed).trim_end_matches("/s")
+        ),
+        None => format!("no process {}", b(get("anon:noproc"))),
+    };
+    let nothers = n
+        .rows
+        .iter()
+        .find(|r| r.row.id == "anon:other")
+        .map(|r| r.row.note.clone())
+        .unwrap_or_default();
+    out.push(format!(
+        "anon     ceph daemons {} ({}) + other processes {} ({}) + {}",
+        b(Some(ceph)),
+        ceph_rows.len(),
+        b(get("anon:other")),
+        nothers,
+        none
+    ));
     for p in &n.problems {
-        out.push(format!("problem: {}", p));
+        out.push(format!("problem  {}", p));
     }
     out
 }
 
 pub fn daemon_summary(d: &DaemonView, sampling_ms: Option<u64>) -> Vec<String> {
     let a = &d.account;
+    let k = &a.kernel;
+    let c = &a.ceph;
+    let b = units::bytes;
+    let na = |v: Option<u64>| if v.is_some() { b(v) } else { "n/a".to_string() };
     let mut out = Vec::new();
     out.push(format!(
-        "{} pid {} version {} socket {}",
+        "{:<8} pid {} | threads {} | version {} | socket {}",
         a.name,
-        a.pid.map(|p| p.to_string()).unwrap_or_else(|| "n/a".into()),
+        k.pid.map(|p| p.to_string()).unwrap_or_else(|| "n/a".into()),
+        k.threads
+            .map(|t| t.to_string())
+            .unwrap_or_else(|| "n/a".into()),
         d.version.clone().unwrap_or_else(|| "n/a".into()),
         d.socket.clone().unwrap_or_else(|| "none".into())
     ));
-    let tgt = a
-        .target
-        .as_ref()
-        .map(|(k, v)| {
-            format!(
-                "{} {} ({}%)",
-                k,
-                units::bytes(Some(*v)),
-                d.rss.cur.and_then(|r| units::percent(r, *v)).unwrap_or(0)
-            )
-        })
-        .unwrap_or_else(|| "no memory target for this daemon type".into());
+    // 1. the kernel and the cgroup
     out.push(format!(
-        "rss {} (peak:seen {} at {}, peak:kernel {} {}) | {} | threads {}",
-        units::bytes(d.rss.cur),
-        d.rss
-            .peak
-            .map(|p| units::bytes(Some(p.0)))
-            .unwrap_or_default(),
-        d.rss.peak.map(|p| units::clock(p.1)).unwrap_or_default(),
-        units::bytes(d.rss_kernel_peak.value),
+        "kernel   rss {} = anon {} + file {} + shmem {} | VmHWM {} ({}) | rss peak seen {}{}",
+        na(k.rss),
+        na(k.anon),
+        na(k.file),
+        na(k.shmem),
+        na(k.hwm),
         d.rss_kernel_peak
             .seen_ms
             .map(|t| format!("at {}", units::clock(t)))
             .unwrap_or_else(|| "before start".into()),
-        tgt,
-        a.threads.map(|t| t.to_string()).unwrap_or_default()
+        d.rss
+            .peak
+            .map(|p| b(Some(p.0)))
+            .unwrap_or_else(|| "n/a".into()),
+        d.rss
+            .peak
+            .map(|p| format!(" at {}", units::clock(p.1)))
+            .unwrap_or_default(),
     ));
-    if let Some(cg) = &a.cgroup {
-        out.push(format!(
-            "cgroup {} current {} max {} peak:kernel {}{}",
-            cg.path,
-            units::bytes(cg.current),
-            cg.max
-                .map(|m| units::bytes(Some(m)))
+    out.push(match &k.cgroup_path {
+        Some(path) => format!(
+            "         cgroup {}: current {}, max {}, peak {}{}",
+            path,
+            na(k.cgroup_current),
+            k.cgroup_max
+                .map(|m| b(Some(m)))
                 .unwrap_or_else(|| "unlimited".into()),
-            units::bytes(cg.peak),
-            cg.nprocs
+            na(k.cgroup_peak),
+            k.cgroup_procs
                 .filter(|n| *n > 1)
                 .map(|n| format!(" (shared by {} processes)", n))
                 .unwrap_or_default()
+        ),
+        None => "         cgroup n/a".to_string(),
+    });
+    // 2. the daemon
+    out.push(format!(
+        "ceph     {}",
+        match (&c.target_key, c.target) {
+            (Some(key), Some(t)) => format!(
+                "{} {} (rss {}%{})",
+                key,
+                b(Some(t)),
+                k.rss.and_then(|r| units::percent(r, t)).unwrap_or(0),
+                c.tuner_target
+                    .filter(|x| *x != t)
+                    .map(|x| format!(", tuner uses {}", b(Some(x))))
+                    .unwrap_or_default()
+            ),
+            _ => match c.tuner_target {
+                Some(t) => format!("tuner target {}", b(Some(t))),
+                None => "no memory target for this daemon type".into(),
+            },
+        }
+    ));
+    out.push(format!(
+        "         mempool_total {} (caches {} + un-cached {}) | heap_in_use {} | heap_actual {} | tuner sees mapped {}, unmapped {}",
+        na(c.mempool_total),
+        na(c.caches_used),
+        na(c.uncached_mempool),
+        na(c.heap_in_use),
+        na(c.heap_actual),
+        na(c.tuner_mapped),
+        na(c.tuner_unmapped),
+    ));
+    let neg = |v: Option<u64>, known: bool| if known { na(v) } else { "n/a".to_string() };
+    out.push(format!(
+        "         untracked {} = heap_in_use - mempool_total | allocator_overhead {} = heap_actual - heap_in_use | non_heap {} = rss - heap_actual",
+        neg(c.untracked, c.heap_in_use.is_some() && c.mempool_total.is_some()),
+        neg(c.allocator_overhead, c.heap_actual.is_some()),
+        neg(c.non_heap, c.heap_actual.is_some() && k.rss.is_some()),
+    ));
+    // 3. the two must agree: one check per line
+    for (i, m) in a.matches.iter().enumerate() {
+        out.push(format!(
+            "{:<8} {:<9} {:<66} {}",
+            if i == 0 { "match" } else { "" },
+            if m.ok {
+                "ok"
+            } else if m.hard {
+                "MISMATCH"
+            } else {
+                "differs"
+            },
+            m.what,
+            m.detail
         ));
     }
     out.push(format!(
-        "residual {}% of rss | sampling {} | {}{}",
-        a.residual_pct
-            .map(|p| p.to_string())
-            .unwrap_or_else(|| "?".into()),
+        "state    sampling {} | residual {}% of rss{}{}",
         sampling_ms
             .map(|m| format!("{:.1} s", m as f64 / 1000.0))
             .unwrap_or_else(|| "first sample".into()),
+        a.residual_pct
+            .map(|p| p.to_string())
+            .unwrap_or_else(|| "?".into()),
         if d.stale {
-            "STALE "
+            " | STALE"
         } else if d.degraded {
-            "DEGRADED "
+            " | DEGRADED"
         } else {
             ""
         },
         d.restarted_at
-            .map(|t| format!("restarted at {}, peaks and rates reset", units::clock(t)))
+            .map(|t| format!(" | restarted at {}, peaks and rates reset", units::clock(t)))
             .unwrap_or_default()
     ));
     for e in &d.errors {
-        out.push(format!("could not read: {}", e));
+        out.push(format!("error    could not read: {}", e));
     }
     for p in &a.problems {
-        out.push(format!("problem: {}", p));
+        out.push(format!("problem  {}", p));
     }
     out
 }
