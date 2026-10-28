@@ -88,7 +88,30 @@ tuner samples on its own timer), the configured target equals the tuner's, and a
 charges at least the anon memory (soft: a difference is explained). A derived figure that comes out negative is `n/a` and the match says
 which input is off, e.g. heap pages held but not resident.
 
-Rows marked `?` are residuals, `ref` rows are not summed. Without tcmalloc the heap rows merge
+The rows are shown as a tree by default (`t` toggles the flat list, `--flat` starts with it), so
+each figure sits under what it belongs to:
+
+```
+rss
+├─ anon (RssAnon)
+│  ├─ heap (tcmalloc actual, resident part)
+│  │  ├─ in use by the application (heap_in_use)
+│  │  │  ├─ mempools (dump_mempools total)
+│  │  │  │  ├─ caches: data cache, meta cache
+│  │  │  │  └─ un-cached: PG log, OSD maps, allocator, in-flight writes, BlueFS, buffers, other mempools
+│  │  │  └─ untracked (heap_in_use - mempool_total)
+│  │  │     ├─ RocksDB block caches (kv, kv_onode)
+│  │  │     ├─ RocksDB memtables and SST readers, as far as the daemon reports them
+│  │  │     └─ not in any mempool (residual)
+│  │  ├─ allocator: free lists and metadata (allocator_overhead)
+│  │  └─ held but not resident (reference)
+│  └─ anon outside heap (stacks, other allocators)
+├─ file-backed (binary, libraries, mapped files)
+└─ shared memory
+```
+
+Aggregates show the current value only, since peaks do not add up; leaves carry the rate, the
+growth streak and the peaks. Rows marked `?` are residuals, `ref` rows are not summed. Without tcmalloc the heap rows merge
 into "heap, not in any mempool, plus allocator free lists" from the priority cache's
 `mapped_bytes`; without that, into "anon, unattributed". A derived value that comes out negative
 is shown as `n/a` with the suspect source named; the level then does not reconcile and the checks

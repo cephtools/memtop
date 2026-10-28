@@ -606,17 +606,13 @@ fn sum_nodes(nodes: &[Node]) -> Option<u64> {
     }
 }
 
+/// (glyphs, node) in display order: the tree lines up to and including this node's branch.
 fn flatten<'a>(nodes: &'a [Node], prefix: &str, out: &mut Vec<(String, &'a Node)>) {
     let n = nodes.len();
     for (i, node) in nodes.iter().enumerate() {
         let last = i + 1 == n;
         out.push((
-            format!(
-                "{}{} {}",
-                prefix,
-                if last { "└─" } else { "├─" },
-                node.label
-            ),
+            format!("{}{} ", prefix, if last { "└─" } else { "├─" }),
             node,
         ));
         let child_prefix = format!("{}{}", prefix, if last { "   " } else { "│  " });
@@ -881,34 +877,32 @@ fn tree_table(
     share_of: &str,
     o: Opts,
 ) -> Table {
-    let (header, widths) = tracked_header(o, share_of);
+    let (header, mut widths) = tracked_header(o, share_of);
+    widths[0] = 60; // the tree lines take room
     let mut flat = Vec::new();
     flatten(nodes, "", &mut flat);
     let mut out = Vec::new();
-    for (label, n) in flat {
+    for (glyphs, n) in flat {
         let leaf = n
             .leaf
             .as_deref()
             .and_then(|id| rows.iter().find(|r| r.row.id == id));
+        let label = |marker: &str| format!("{}{}{}", glyphs, marker, n.label);
         let mut cells = match leaf {
             Some(r) => {
                 let mut c = tracked_cells(r, whole, o).cells;
-                c[0] = format!(
-                    "{}{}",
-                    if r.row.reference {
-                        "ref "
-                    } else if r.row.residual {
-                        "? "
-                    } else {
-                        ""
-                    },
-                    label
-                );
+                c[0] = label(if r.row.reference {
+                    "ref: "
+                } else if r.row.residual {
+                    "? "
+                } else {
+                    ""
+                });
                 c
             }
             None => {
                 let mut c = vec![
-                    label,
+                    label(""),
                     n.value
                         .map(|v| units::bytes(Some(v)))
                         .unwrap_or_else(|| "n/a".into()),
@@ -929,8 +923,8 @@ fn tree_table(
                 c
             }
         };
-        if cells[0].len() > 46 {
-            cells[0] = cells[0].chars().take(46).collect();
+        if cells[0].chars().count() > 60 {
+            cells[0] = cells[0].chars().take(60).collect();
         }
         out.push(TableRow {
             cells,
