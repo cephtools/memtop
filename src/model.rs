@@ -817,7 +817,7 @@ pub fn daemon_account(d: &RawDaemon, p: Option<&ProcInfo>, s: &RawSample) -> Dae
             )
             .reference()
             .optional()
-            .note("every write still in a memtable is in a live WAL; the memtables run ~10 % above it; a WAL file lives until every column family flushed it"),
+            .note("every write still in a memtable is in a live WAL; the memtables run ~10 % above it plus a fixed arena block per column family; a WAL file lives until every column family flushed it"),
         );
     }
     if d.kind == "osd" {
@@ -893,7 +893,7 @@ pub fn daemon_account(d: &RawDaemon, p: Option<&ProcInfo>, s: &RawSample) -> Dae
                         Some(un as u64),
                         "tcmalloc in use - rows above",
                     )
-                    .note("mostly the PG log beyond its count (estimate below), size-class rounding on mempool objects, startup objects (log/perf buffers, allocator tree, scrubbers)")
+                    .note("mostly the PG log beyond its count (estimate below), size-class rounding on mempool objects, startup objects (log and perf buffers, scrubbers)")
                     .residual(),
                 );
             } else if have_pools {
@@ -928,12 +928,14 @@ pub fn daemon_account(d: &RawDaemon, p: Option<&ProcInfo>, s: &RawSample) -> Dae
                     "tcmalloc actual - in use",
                 )
                 .note(format!(
-                    "page heap {} central {} transfer {} thread {} meta {}",
+                    "allocator_overhead {} = page heap {} central {} transfer {} thread {} meta {}; {} of it not resident",
+                    crate::units::bytes(Some(free_res + nonres)),
                     crate::units::bytes(Some(h.pageheap_free)),
                     crate::units::bytes(Some(h.central_free)),
                     crate::units::bytes(Some(h.transfer_free)),
                     crate::units::bytes(Some(h.thread_free)),
-                    crate::units::bytes(Some(h.metadata))
+                    crate::units::bytes(Some(h.metadata)),
+                    crate::units::bytes(Some(nonres))
                 )),
             );
             if nonres > 0 {

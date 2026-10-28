@@ -143,6 +143,10 @@ Every row carries a peak. Two kinds, labelled apart:
   there).
 * `peak:seen`: the largest value this tool sampled since start, reset or restart. A spike between
   two samples is invisible; the sampling period is shown next to the columns.
+* `memory.peak` belongs to the cgroup, not the process: a daemon restarted into the same cgroup
+  inherits the old peak, and since Linux 6.12 a write to the file resets it only for the writing
+  file descriptor, so nothing outside the reader can reset it. The summary flags a cgroup peak
+  above the process's own VmHWM.
 
 Peaks never add up: parts peak at different moments. Only current values reconcile. `r` resets
 the selected row's seen peak (on an aggregate of the tree, every leaf beneath it), `R` all of them; a daemon restart (new pid or start time) resets

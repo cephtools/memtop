@@ -434,7 +434,7 @@ pub fn daemon_summary(d: &DaemonView, sampling_ms: Option<u64>) -> Vec<String> {
     ));
     out.push(match &k.cgroup_path {
         Some(path) => format!(
-            "         cgroup {}: current {}, max {}, peak {}{}",
+            "         cgroup {}: current {}, max {}, peak {}{}{}",
             path,
             na(k.cgroup_current),
             k.cgroup_max
@@ -444,7 +444,15 @@ pub fn daemon_summary(d: &DaemonView, sampling_ms: Option<u64>) -> Vec<String> {
             k.cgroup_procs
                 .filter(|n| *n > 1)
                 .map(|n| format!(" (shared by {} processes)", n))
-                .unwrap_or_default()
+                .unwrap_or_default(),
+            // memory.peak belongs to the cgroup: a daemon restarted into it inherits the old
+            // peak, and a write resets it only for the writing file descriptor
+            match (k.cgroup_peak, k.hwm) {
+                (Some(p), Some(h)) if p > h => {
+                    " (above this process's VmHWM: an earlier process in the cgroup, or charged page cache)"
+                }
+                _ => "",
+            }
         ),
         None => "         cgroup n/a".to_string(),
     });
@@ -775,7 +783,7 @@ fn daemon_tree(d: &DaemonView) -> Vec<Node> {
         heap_children.push(Node::leaf(
             rows,
             "heap:free",
-            "allocator: free lists and metadata (allocator_overhead)",
+            "allocator: free lists and metadata (resident part of allocator_overhead)",
         ));
         if let Some(n) = Node::leaf_if(rows, "ref:heap_nonresident", "held but not resident") {
             heap_children.push(n);
@@ -983,7 +991,7 @@ pub fn daemon_tree_table(d: &DaemonView, o: Opts) -> Table {
     let nodes = daemon_tree(d);
     tree_table(
         format!(
-            "{}: rss {} = ...",
+            "{}: rss {}, the rows add up to it",
             d.account.name,
             units::bytes(d.account.rss)
         ),
