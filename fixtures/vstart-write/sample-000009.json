@@ -1,0 +1,3450 @@
+{
+  "seq": 9,
+  "wall_ms": 1793180217507,
+  "mono_ms": 9062,
+  "page_size": 4096,
+  "meminfo": {
+    "Active(anon)": 699662336,
+    "Unevictable": 18436096,
+    "Dirty": 7487488,
+    "Inactive(anon)": 2715648,
+    "SUnreclaim": 391819264,
+    "SecPageTables": 1421312,
+    "CommitLimit": 25410330624,
+    "HugePages_Rsvd": 0,
+    "DirectMap1G": 25769803776,
+    "Mlocked": 14340096,
+    "WritebackTmp": 0,
+    "HardwareCorrupted": 0,
+    "Inactive": 12199079936,
+    "MemTotal": 33640804352,
+    "DirectMap2M": 10523508736,
+    "Writeback": 0,
+    "Unaccepted": 0,
+    "SwapTotal": 8589930496,
+    "Zswapped": 0,
+    "CmaFree": 0,
+    "AnonHugePages": 0,
+    "Cached": 14230409216,
+    "VmallocTotal": 35184372087808,
+    "Balloon": 0,
+    "Committed_AS": 5599948800,
+    "FilePmdMapped": 0,
+    "HugePages_Free": 0,
+    "FileHugePages": 0,
+    "KReclaimable": 1765867520,
+    "Mapped": 164253696,
+    "Hugetlb": 0,
+    "MemFree": 16339062784,
+    "HugePages_Total": 0,
+    "Bounce": 0,
+    "Buffers": 3612672,
+    "Slab": 2157686784,
+    "AnonPages": 695148544,
+    "Shmem": 13828096,
+    "ShmemHugePages": 0,
+    "CmaTotal": 0,
+    "MemAvailable": 31831842816,
+    "PageTables": 8613888,
+    "HugePages_Surp": 0,
+    "Inactive(file)": 12196364288,
+    "Hugepagesize": 2097152,
+    "KernelStack": 11042816,
+    "ShmemPmdMapped": 0,
+    "Active": 2711326720,
+    "NFS_Unstable": 0,
+    "SwapFree": 8589930496,
+    "DirectMap4k": 213725184,
+    "Active(file)": 2011664384,
+    "SwapCached": 0,
+    "SReclaimable": 1765867520,
+    "Percpu": 5308416,
+    "VmallocUsed": 67239936,
+    "VmallocChunk": 0,
+    "Zswap": 0
+  },
+  "sockstat": {
+    "tcp_bytes": 0,
+    "udp_bytes": 2097152
+  },
+  "procs": [
+    {
+      "pid": 1,
+      "comm": "systemd",
+      "cmdline": [
+        "systemd"
+      ],
+      "starttime": 27,
+      "uid": 0,
+      "rss": 15446016,
+      "rss_anon": 4456448,
+      "rss_file": 10989568,
+      "rss_shmem": 0,
+      "vm_hwm": 15446016,
+      "threads": 1,
+      "cgroup": "/init.scope",
+      "socket_inodes": [
+        5798,
+        359,
+        5783,
+        5784,
+        5785,
+        5788,
+        5808,
+        5809,
+        5810,
+        7397,
+        6634,
+        7396,
+        8722,
+        4344,
+        7398,
+        7400,
+        7401,
+        7402,
+        7403,
+        7404,
+        8491,
+        8492,
+        8493,
+        8494,
+        8495,
+        8500,
+        8499,
+        8510,
+        8511,
+        5916,
+        8509,
+        9823,
+        10578,
+        11299,
+        11300,
+        11434,
+        11435,
+        11436,
+        11391,
+        12573,
+        12574,
+        11437,
+        11438,
+        11439,
+        5846,
+        11440,
+        11441,
+        11442,
+        11409,
+        7022,
+        11445,
+        7037,
+        11516,
+        4700,
+        4701,
+        7023,
+        7030,
+        4691,
+        13737,
+        11711,
+        12782,
+        15362
+      ],
+      "fds_readable": true
+    },
+    {
+      "pid": 650,
+      "comm": "systemd-journal",
+      "cmdline": [
+        "systemd-journal"
+      ],
+      "starttime": 406,
+      "uid": 0,
+      "rss": 35246080,
+      "rss_anon": 1282048,
+      "rss_file": 33955840,
+      "rss_shmem": 8192,
+      "vm_hwm": 35246080,
+      "threads": 1,
+      "cgroup": "/system.slice/systemd-journald.service",
+      "socket_inodes": [
+        8510,
+        8511,
+        7400,
+        8509,
+        6691,
+        6693,
+        5916,
+        9823,
+        12573,
+        11391,
+        12574,
+        7022,
+        7023,
+        7030,
+        11516,
+        4691,
+        7037,
+        13737,
+        11711,
+        12782,
+        15362
+      ],
+      "fds_readable": true
+    },
+    {
+      "pid": 702,
+      "comm": "systemd-userdbd",
+      "cmdline": [
+        "systemd-userdbd"
+      ],
+      "starttime": 450,
+      "uid": 0,
+      "rss": 6778880,
+      "rss_anon": 897024,
+      "rss_file": 5881856,
+      "rss_shmem": 0,
+      "vm_hwm": 6778880,
+      "threads": 1,
+      "cgroup": "/system.slice/systemd-userdbd.service",
+      "socket_inodes": [
+        6720,
+        6720,
+        7404,
+        6738
+      ],
+      "fds_readable": true
+    },
+    {
+      "pid": 717,
+      "comm": "systemd-udevd",
+      "cmdline": [
+        "systemd-udevd"
+      ],
+      "starttime": 464,
+      "uid": 0,
+      "rss": 11624448,
+      "rss_anon": 2859008,
+      "rss_file": 8765440,
+      "rss_shmem": 0,
+      "vm_hwm": 11624448,
+      "threads": 1,
+      "cgroup": "/system.slice/systemd-udevd.service/udev",
+      "socket_inodes": [
+        9040,
+        9040,
+        7403,
+        7402,
+        9048,
+        9049,
+        9050
+      ],
+      "fds_readable": true
+    },
+    {
+      "pid": 845,
+      "comm": "rpcbind",
+      "cmdline": [
+        "rpcbind"
+      ],
+      "starttime": 607,
+      "uid": 32,
+      "rss": 5623808,
+      "rss_anon": 888832,
+      "rss_file": 4734976,
+      "rss_shmem": 0,
+      "vm_hwm": 5623808,
+      "threads": 1,
+      "cgroup": "/system.slice/rpcbind.service",
+      "socket_inodes": [
+        12558,
+        12558,
+        5809,
+        5810,
+        6634,
+        7396,
+        8722,
+        4344,
+        4848,
+        12568,
+        12572
+      ],
+      "fds_readable": true
+    },
+    {
+      "pid": 846,
+      "comm": "systemd-oomd",
+      "cmdline": [
+        "systemd-oomd"
+      ],
+      "starttime": 608,
+      "uid": 999,
+      "rss": 7720960,
+      "rss_anon": 950272,
+      "rss_file": 6770688,
+      "rss_shmem": 0,
+      "vm_hwm": 7720960,
+      "threads": 1,
+      "cgroup": "/system.slice/systemd-oomd.service",
+      "socket_inodes": [
+        10009,
+        10009,
+        7401,
+        12595,
+        12599,
+        12609,
+        8124
+      ],
+      "fds_readable": true
+    },
+    {
+      "pid": 847,
+      "comm": "auditd",
+      "cmdline": [
+        "auditd"
+      ],
+      "starttime": 609,
+      "uid": 0,
+      "rss": 3014656,
+      "rss_anon": 884736,
+      "rss_file": 2129920,
+      "rss_shmem": 0,
+      "vm_hwm": 3014656,
+      "threads": 2,
+      "cgroup": "/system.slice/auditd.service",
+      "socket_inodes": [
+        7588,
+        10731,
+        10732,
+        10733
+      ],
+      "fds_readable": true
+    },
+    {
+      "pid": 850,
+      "comm": "systemd-resolve",
+      "cmdline": [
+        "systemd-resolve"
+      ],
+      "starttime": 609,
+      "uid": 193,
+      "rss": 13570048,
+      "rss_anon": 2400256,
+      "rss_file": 11169792,
+      "rss_shmem": 0,
+      "vm_hwm": 13570048,
+      "threads": 1,
+      "cgroup": "/system.slice/systemd-resolved.service",
+      "socket_inodes": [
+        841,
+        841,
+        10076,
+        853,
+        854,
+        855,
+        862,
+        863,
+        868,
+        869,
+        870,
+        871,
+        872,
+        873,
+        877
+      ],
+      "fds_readable": true
+    },
+    {
+      "pid": 880,
+      "comm": "dbus-broker-lau",
+      "cmdline": [
+        "dbus-broker-lau"
+      ],
+      "starttime": 630,
+      "uid": 81,
+      "rss": 4874240,
+      "rss_anon": 806912,
+      "rss_file": 4063232,
+      "rss_shmem": 4096,
+      "vm_hwm": 5394432,
+      "threads": 1,
+      "cgroup": "/system.slice/dbus-broker.service",
+      "socket_inodes": [
+        10768,
+        10768,
+        11435,
+        10771,
+        10773,
+        10775
+      ],
+      "fds_readable": true
+    },
+    {
+      "pid": 881,
+      "comm": "dbus-broker",
+      "cmdline": [
+        "dbus-broker"
+      ],
+      "starttime": 633,
+      "uid": 81,
+      "rss": 4087808,
+      "rss_anon": 1159168,
+      "rss_file": 2928640,
+      "rss_shmem": 0,
+      "vm_hwm": 4415488,
+      "threads": 1,
+      "cgroup": "/system.slice/dbus-broker.service",
+      "socket_inodes": [
+        10768,
+        10768,
+        10082,
+        10771,
+        11435,
+        10774,
+        10083,
+        10084,
+        10085,
+        10087,
+        4692,
+        11481,
+        7067,
+        4697,
+        983,
+        10153,
+        4914
+      ],
+      "fds_readable": true
+    },
+    {
+      "pid": 882,
+      "comm": "avahi-daemon",
+      "cmdline": [
+        "avahi-daemon"
+      ],
+      "starttime": 634,
+      "uid": 70,
+      "rss": 4644864,
+      "rss_anon": 393216,
+      "rss_file": 4251648,
+      "rss_shmem": 0,
+      "vm_hwm": 4644864,
+      "threads": 1,
+      "cgroup": "/system.slice/avahi-daemon.service",
+      "socket_inodes": [
+        7613,
+        7613,
+        11434,
+        11476,
+        953,
+        958,
+        959,
+        960,
+        961
+      ],
+      "fds_readable": true
+    },
+    {
+      "pid": 883,
+      "comm": "chronyd",
+      "cmdline": [
+        "chronyd"
+      ],
+      "starttime": 635,
+      "uid": 997,
+      "rss": 6684672,
+      "rss_anon": 839680,
+      "rss_file": 5844992,
+      "rss_shmem": 0,
+      "vm_hwm": 6684672,
+      "threads": 1,
+      "cgroup": "/system.slice/chronyd.service",
+      "socket_inodes": [
+        12625,
+        12625,
+        965,
+        968,
+        969,
+        10797
+      ],
+      "fds_readable": true
+    },
+    {
+      "pid": 886,
+      "comm": "firewalld",
+      "cmdline": [
+        "firewalld"
+      ],
+      "starttime": 636,
+      "uid": 0,
+      "rss": 46350336,
+      "rss_anon": 27136000,
+      "rss_file": 19214336,
+      "rss_shmem": 0,
+      "vm_hwm": 46350336,
+      "threads": 2,
+      "cgroup": "/system.slice/firewalld.service",
+      "socket_inodes": [
+        7697,
+        12689,
+        10151,
+        10152
+      ],
+      "fds_readable": true
+    },
+    {
+      "pid": 888,
+      "comm": "systemd-homed",
+      "cmdline": [
+        "systemd-homed"
+      ],
+      "starttime": 638,
+      "uid": 0,
+      "rss": 8306688,
+      "rss_anon": 1216512,
+      "rss_file": 7090176,
+      "rss_shmem": 0,
+      "vm_hwm": 8306688,
+      "threads": 1,
+      "cgroup": "/system.slice/systemd-homed.service",
+      "socket_inodes": [
+        916,
+        916,
+        933,
+        935,
+        936,
+        937,
+        939
+      ],
+      "fds_readable": true
+    },
+    {
+      "pid": 891,
+      "comm": "systemd-logind",
+      "cmdline": [
+        "systemd-logind"
+      ],
+      "starttime": 638,
+      "uid": 0,
+      "rss": 8859648,
+      "rss_anon": 1077248,
+      "rss_file": 7782400,
+      "rss_shmem": 0,
+      "vm_hwm": 8859648,
+      "threads": 1,
+      "cgroup": "/system.slice/systemd-logind.service",
+      "socket_inodes": [
+        7643,
+        7643,
+        7672,
+        7677,
+        7678,
+        7679,
+        7680,
+        7681
+      ],
+      "fds_readable": true
+    },
+    {
+      "pid": 901,
+      "comm": "avahi-daemon",
+      "cmdline": [
+        "avahi-daemon"
+      ],
+      "starttime": 641,
+      "uid": 70,
+      "rss": 1753088,
+      "rss_anon": 348160,
+      "rss_file": 1404928,
+      "rss_shmem": 0,
+      "vm_hwm": 1753088,
+      "threads": 1,
+      "cgroup": "/system.slice/avahi-daemon.service",
+      "socket_inodes": [
+        7613,
+        7613,
+        11434,
+        11476,
+        954
+      ],
+      "fds_readable": true
+    },
+    {
+      "pid": 972,
+      "comm": "polkitd",
+      "cmdline": [
+        "polkitd"
+      ],
+      "starttime": 727,
+      "uid": 114,
+      "rss": 10059776,
+      "rss_anon": 2408448,
+      "rss_file": 7651328,
+      "rss_shmem": 0,
+      "vm_hwm": 10059776,
+      "threads": 4,
+      "cgroup": "/system.slice/polkit.service",
+      "socket_inodes": [
+        7100
+      ],
+      "fds_readable": true
+    },
+    {
+      "pid": 991,
+      "comm": "NetworkManager",
+      "cmdline": [
+        "NetworkManager"
+      ],
+      "starttime": 745,
+      "uid": 0,
+      "rss": 20480000,
+      "rss_anon": 2711552,
+      "rss_file": 17768448,
+      "rss_shmem": 0,
+      "vm_hwm": 20480000,
+      "threads": 4,
+      "cgroup": "/system.slice/NetworkManager.service",
+      "socket_inodes": [
+        999,
+        999,
+        1001,
+        1002,
+        7744,
+        7745,
+        7746,
+        7747,
+        1003,
+        7796,
+        7797,
+        11193
+      ],
+      "fds_readable": true
+    },
+    {
+      "pid": 999,
+      "comm": "gssproxy",
+      "cmdline": [
+        "gssproxy"
+      ],
+      "starttime": 761,
+      "uid": 0,
+      "rss": 9338880,
+      "rss_anon": 2154496,
+      "rss_file": 7184384,
+      "rss_shmem": 0,
+      "vm_hwm": 9338880,
+      "threads": 6,
+      "cgroup": "/system.slice/gssproxy.service",
+      "socket_inodes": [
+        10867,
+        10867,
+        10888,
+        10889,
+        10890,
+        10899
+      ],
+      "fds_readable": true
+    },
+    {
+      "pid": 1164,
+      "comm": "rpc.idmapd",
+      "cmdline": [
+        "rpc.idmapd"
+      ],
+      "starttime": 855,
+      "uid": 0,
+      "rss": 3162112,
+      "rss_anon": 249856,
+      "rss_file": 2912256,
+      "rss_shmem": 0,
+      "vm_hwm": 3162112,
+      "threads": 1,
+      "cgroup": "/system.slice/nfs-idmapd.service",
+      "socket_inodes": [
+        7159
+      ],
+      "fds_readable": true
+    },
+    {
+      "pid": 1166,
+      "comm": "rpc.statd",
+      "cmdline": [
+        "rpc.statd"
+      ],
+      "starttime": 856,
+      "uid": 29,
+      "rss": 3395584,
+      "rss_anon": 778240,
+      "rss_file": 2617344,
+      "rss_shmem": 0,
+      "vm_hwm": 3395584,
+      "threads": 1,
+      "cgroup": "/system.slice/rpc-statd.service",
+      "socket_inodes": [
+        14438,
+        14439,
+        14445,
+        14448,
+        14452,
+        14455
+      ],
+      "fds_readable": true
+    },
+    {
+      "pid": 1167,
+      "comm": "sshd",
+      "cmdline": [
+        "sshd"
+      ],
+      "starttime": 856,
+      "uid": 0,
+      "rss": 6225920,
+      "rss_anon": 978944,
+      "rss_file": 5246976,
+      "rss_shmem": 0,
+      "vm_hwm": 6225920,
+      "threads": 1,
+      "cgroup": "/system.slice/sshd.service",
+      "socket_inodes": [
+        11011,
+        11011,
+        12884,
+        12886
+      ],
+      "fds_readable": true
+    },
+    {
+      "pid": 1177,
+      "comm": "rpc.mountd",
+      "cmdline": [
+        "rpc.mountd"
+      ],
+      "starttime": 859,
+      "uid": 0,
+      "rss": 2191360,
+      "rss_anon": 884736,
+      "rss_file": 1306624,
+      "rss_shmem": 0,
+      "vm_hwm": 2191360,
+      "threads": 1,
+      "cgroup": "/system.slice/nfs-mountd.service",
+      "socket_inodes": [
+        12841,
+        12843,
+        11630,
+        11632,
+        11043
+      ],
+      "fds_readable": true
+    },
+    {
+      "pid": 1237,
+      "comm": "iscsid",
+      "cmdline": [
+        "iscsid"
+      ],
+      "starttime": 871,
+      "uid": 0,
+      "rss": 14348288,
+      "rss_anon": 2064384,
+      "rss_file": 12283904,
+      "rss_shmem": 0,
+      "vm_hwm": 15122432,
+      "threads": 1,
+      "cgroup": "/system.slice/iscsid.service",
+      "socket_inodes": [
+        13093,
+        13093,
+        11436,
+        14588,
+        245915
+      ],
+      "fds_readable": true
+    },
+    {
+      "pid": 1245,
+      "comm": "agetty",
+      "cmdline": [
+        "agetty"
+      ],
+      "starttime": 873,
+      "uid": 0,
+      "rss": 2990080,
+      "rss_anon": 249856,
+      "rss_file": 2740224,
+      "rss_shmem": 0,
+      "vm_hwm": 2990080,
+      "threads": 1,
+      "cgroup": "/system.slice/system-getty.slice/getty@tty1.service",
+      "socket_inodes": [
+        14628
+      ],
+      "fds_readable": true
+    },
+    {
+      "pid": 1246,
+      "comm": "agetty",
+      "cmdline": [
+        "agetty"
+      ],
+      "starttime": 874,
+      "uid": 0,
+      "rss": 3284992,
+      "rss_anon": 266240,
+      "rss_file": 3018752,
+      "rss_shmem": 0,
+      "vm_hwm": 3284992,
+      "threads": 1,
+      "cgroup": "/system.slice/system-serial\\x2dgetty.slice/serial-getty@ttyS0.service",
+      "socket_inodes": [
+        13173
+      ],
+      "fds_readable": true
+    },
+    {
+      "pid": 1308,
+      "comm": "sshd-session",
+      "cmdline": [
+        "sshd-session"
+      ],
+      "starttime": 1454,
+      "uid": 0,
+      "rss": 11218944,
+      "rss_anon": 1773568,
+      "rss_file": 9445376,
+      "rss_shmem": 0,
+      "vm_hwm": 11218944,
+      "threads": 1,
+      "cgroup": "/user.slice/user-0.slice/session-1.scope",
+      "socket_inodes": [
+        13174,
+        15572,
+        13182,
+        15576
+      ],
+      "fds_readable": true
+    },
+    {
+      "pid": 1313,
+      "comm": "systemd",
+      "cmdline": [
+        "systemd"
+      ],
+      "starttime": 1480,
+      "uid": 0,
+      "rss": 13045760,
+      "rss_anon": 2084864,
+      "rss_file": 10960896,
+      "rss_shmem": 0,
+      "vm_hwm": 13045760,
+      "threads": 1,
+      "cgroup": "/user.slice/user-0.slice/user@0.service/init.scope",
+      "socket_inodes": [
+        14668,
+        14668,
+        14751,
+        16402,
+        11261,
+        16386,
+        16387,
+        16388,
+        16389,
+        16390,
+        16391,
+        16392,
+        16393,
+        16394,
+        16395
+      ],
+      "fds_readable": true
+    },
+    {
+      "pid": 1315,
+      "comm": "(sd-pam)",
+      "cmdline": [
+        "(sd-pam)"
+      ],
+      "starttime": 1483,
+      "uid": 0,
+      "rss": 3252224,
+      "rss_anon": 1454080,
+      "rss_file": 1798144,
+      "rss_shmem": 0,
+      "vm_hwm": 3252224,
+      "threads": 1,
+      "cgroup": "/user.slice/user-0.slice/user@0.service/init.scope",
+      "socket_inodes": [
+        14668,
+        14668,
+        14745,
+        8495,
+        5784
+      ],
+      "fds_readable": true
+    },
+    {
+      "pid": 1331,
+      "comm": "sshd-session",
+      "cmdline": [
+        "sshd-session"
+      ],
+      "starttime": 1502,
+      "uid": 0,
+      "rss": 8048640,
+      "rss_anon": 2592768,
+      "rss_file": 5455872,
+      "rss_shmem": 0,
+      "vm_hwm": 12935168,
+      "threads": 1,
+      "cgroup": "/user.slice/user-0.slice/session-1.scope",
+      "socket_inodes": [
+        13174,
+        15572,
+        15575,
+        13182
+      ],
+      "fds_readable": true
+    },
+    {
+      "pid": 1332,
+      "comm": "bash",
+      "cmdline": [
+        "bash"
+      ],
+      "starttime": 1507,
+      "uid": 0,
+      "rss": 6672384,
+      "rss_anon": 2846720,
+      "rss_file": 3825664,
+      "rss_shmem": 0,
+      "vm_hwm": 6672384,
+      "threads": 1,
+      "cgroup": "/user.slice/user-0.slice/session-1.scope",
+      "socket_inodes": [],
+      "fds_readable": true
+    },
+    {
+      "pid": 1375,
+      "comm": "bash",
+      "cmdline": [
+        "bash"
+      ],
+      "starttime": 1705,
+      "uid": 0,
+      "rss": 6799360,
+      "rss_anon": 3047424,
+      "rss_file": 3751936,
+      "rss_shmem": 0,
+      "vm_hwm": 6799360,
+      "threads": 1,
+      "cgroup": "/user.slice/user-0.slice/session-1.scope",
+      "socket_inodes": [],
+      "fds_readable": true
+    },
+    {
+      "pid": 293764,
+      "comm": "slabtop",
+      "cmdline": [
+        "slabtop"
+      ],
+      "starttime": 2763567,
+      "uid": 0,
+      "rss": 4608000,
+      "rss_anon": 1294336,
+      "rss_file": 3313664,
+      "rss_shmem": 0,
+      "vm_hwm": 4608000,
+      "threads": 1,
+      "cgroup": "/user.slice/user-0.slice/session-1.scope",
+      "socket_inodes": [],
+      "fds_readable": true
+    },
+    {
+      "pid": 294157,
+      "comm": "ceph-mon",
+      "cmdline": [
+        "/root/git/ceph/ceph/build/bin/ceph-mon",
+        "-i",
+        "a",
+        "-c",
+        "/root/memopt/vs/ceph.conf"
+      ],
+      "starttime": 3163113,
+      "uid": 0,
+      "rss": 70983680,
+      "rss_anon": 39657472,
+      "rss_file": 31326208,
+      "rss_shmem": 0,
+      "vm_hwm": 71540736,
+      "threads": 26,
+      "cgroup": "/user.slice/user-0.slice/session-1.scope",
+      "socket_inodes": [
+        250936,
+        249001,
+        253322,
+        252338,
+        252339,
+        244471,
+        244477,
+        244483,
+        249021,
+        253046,
+        255123,
+        257230,
+        256136,
+        250618,
+        249303
+      ],
+      "fds_readable": true
+    },
+    {
+      "pid": 294315,
+      "comm": "ceph-mgr",
+      "cmdline": [
+        "/root/git/ceph/ceph/build/bin/ceph-mgr",
+        "-i",
+        "x",
+        "-c",
+        "/root/memopt/vs/ceph.conf"
+      ],
+      "starttime": 3163228,
+      "uid": 0,
+      "rss": 182669312,
+      "rss_anon": 126238720,
+      "rss_file": 56430592,
+      "rss_shmem": 0,
+      "vm_hwm": 182669312,
+      "threads": 89,
+      "cgroup": "/user.slice/user-0.slice/session-1.scope",
+      "socket_inodes": [
+        246623,
+        249019,
+        250948,
+        250950,
+        249020,
+        243545,
+        252361,
+        253311,
+        258110,
+        258109,
+        251512,
+        253318,
+        253314,
+        253319,
+        253315,
+        258111,
+        258119,
+        255134,
+        257235,
+        253250,
+        253958,
+        256171,
+        254408,
+        258115,
+        257236
+      ],
+      "fds_readable": true
+    },
+    {
+      "pid": 300167,
+      "comm": "ceph-osd",
+      "cmdline": [
+        "/root/git/ceph/ceph/build/bin/ceph-osd",
+        "-i",
+        "0",
+        "-c",
+        "/root/memopt/vs/ceph.conf",
+        "-f"
+      ],
+      "starttime": 3167612,
+      "uid": 0,
+      "rss": 144175104,
+      "rss_anon": 103145472,
+      "rss_file": 41029632,
+      "rss_shmem": 0,
+      "vm_hwm": 145879040,
+      "threads": 76,
+      "cgroup": "/memopt/osd0",
+      "socket_inodes": [
+        248772,
+        252861,
+        252876,
+        252892,
+        256001,
+        256020,
+        256040,
+        256062,
+        256085,
+        249267,
+        256128,
+        256139,
+        253054,
+        253057,
+        256141,
+        257239,
+        256145,
+        257240,
+        249286,
+        254262,
+        254265,
+        257241,
+        253062,
+        248804,
+        257248,
+        254280,
+        254283,
+        253251,
+        262110
+      ],
+      "fds_readable": true
+    },
+    {
+      "pid": 300168,
+      "comm": "ceph-osd",
+      "cmdline": [
+        "/root/git/ceph/ceph/build/bin/ceph-osd",
+        "-i",
+        "1",
+        "-c",
+        "/root/memopt/vs/ceph.conf",
+        "-f"
+      ],
+      "starttime": 3167613,
+      "uid": 0,
+      "rss": 168513536,
+      "rss_anon": 128028672,
+      "rss_file": 40484864,
+      "rss_shmem": 0,
+      "vm_hwm": 168513536,
+      "threads": 76,
+      "cgroup": "/memopt/osd1",
+      "socket_inodes": [
+        254977,
+        254082,
+        254094,
+        254108,
+        254126,
+        254147,
+        254171,
+        254196,
+        254222,
+        256135,
+        256132,
+        249268,
+        249277,
+        249280,
+        249283,
+        248791,
+        248794,
+        249287,
+        254261,
+        253061,
+        248797,
+        257242,
+        248808,
+        248811,
+        249291,
+        248814,
+        249298,
+        267363
+      ],
+      "fds_readable": true
+    },
+    {
+      "pid": 300169,
+      "comm": "ceph-osd",
+      "cmdline": [
+        "/root/git/ceph/ceph/build/bin/ceph-osd",
+        "-i",
+        "2",
+        "-c",
+        "/root/memopt/vs/ceph.conf",
+        "-f"
+      ],
+      "starttime": 3167613,
+      "uid": 0,
+      "rss": 180269056,
+      "rss_anon": 138850304,
+      "rss_file": 41418752,
+      "rss_shmem": 0,
+      "vm_hwm": 185253888,
+      "threads": 76,
+      "cgroup": "/memopt/osd2",
+      "socket_inodes": [
+        254010,
+        254022,
+        254026,
+        254031,
+        254037,
+        254044,
+        254052,
+        254061,
+        254071,
+        248790,
+        253051,
+        248798,
+        248801,
+        256153,
+        251288,
+        254273,
+        254276,
+        256156,
+        254279,
+        248805,
+        248806,
+        248807,
+        256157,
+        249292,
+        249295,
+        255143,
+        255160
+      ],
+      "fds_readable": true
+    },
+    {
+      "pid": 300170,
+      "comm": "ceph-osd",
+      "cmdline": [
+        "/root/git/ceph/ceph/build/bin/ceph-osd",
+        "-i",
+        "3",
+        "-c",
+        "/root/memopt/vs/ceph.conf",
+        "-f"
+      ],
+      "starttime": 3167613,
+      "uid": 0,
+      "rss": 110297088,
+      "rss_anon": 70045696,
+      "rss_file": 40251392,
+      "rss_shmem": 0,
+      "vm_hwm": 110297088,
+      "threads": 58,
+      "cgroup": "/memopt/osd3",
+      "socket_inodes": [
+        253008,
+        255015,
+        255043,
+        255072,
+        257030,
+        257061,
+        257093,
+        257126,
+        257160,
+        257225,
+        256112,
+        257317,
+        253053,
+        249275,
+        249276,
+        256140,
+        253060,
+        256144,
+        256146,
+        256149,
+        249288,
+        254268,
+        254271,
+        254272,
+        251287,
+        251289,
+        251292,
+        266984,
+        254296
+      ],
+      "fds_readable": true
+    },
+    {
+      "pid": 302938,
+      "comm": "systemd-userwor",
+      "cmdline": [
+        "systemd-userwor"
+      ],
+      "starttime": 3287262,
+      "uid": 0,
+      "rss": 6950912,
+      "rss_anon": 933888,
+      "rss_file": 6017024,
+      "rss_shmem": 0,
+      "vm_hwm": 6950912,
+      "threads": 1,
+      "cgroup": "/system.slice/systemd-userdbd.service",
+      "socket_inodes": [
+        6720,
+        6720,
+        7404,
+        260219
+      ],
+      "fds_readable": true
+    },
+    {
+      "pid": 303628,
+      "comm": "systemd-userwor",
+      "cmdline": [
+        "systemd-userwor"
+      ],
+      "starttime": 3309841,
+      "uid": 0,
+      "rss": 6975488,
+      "rss_anon": 933888,
+      "rss_file": 6041600,
+      "rss_shmem": 0,
+      "vm_hwm": 6975488,
+      "threads": 1,
+      "cgroup": "/system.slice/systemd-userdbd.service",
+      "socket_inodes": [
+        6720,
+        6720,
+        7404,
+        265985
+      ],
+      "fds_readable": true
+    },
+    {
+      "pid": 303631,
+      "comm": "systemd-userwor",
+      "cmdline": [
+        "systemd-userwor"
+      ],
+      "starttime": 3312350,
+      "uid": 0,
+      "rss": 6971392,
+      "rss_anon": 929792,
+      "rss_file": 6041600,
+      "rss_shmem": 0,
+      "vm_hwm": 6971392,
+      "threads": 1,
+      "cgroup": "/system.slice/systemd-userdbd.service",
+      "socket_inodes": [
+        6720,
+        6720,
+        7404,
+        263884
+      ],
+      "fds_readable": true
+    },
+    {
+      "pid": 303698,
+      "comm": "bash",
+      "cmdline": [
+        "bash"
+      ],
+      "starttime": 3314393,
+      "uid": 0,
+      "rss": 3899392,
+      "rss_anon": 397312,
+      "rss_file": 3502080,
+      "rss_shmem": 0,
+      "vm_hwm": 3899392,
+      "threads": 1,
+      "cgroup": "/user.slice/user-0.slice/session-1.scope",
+      "socket_inodes": [],
+      "fds_readable": true
+    },
+    {
+      "pid": 303774,
+      "comm": "ceph-memtop",
+      "cmdline": [
+        "ceph-memtop"
+      ],
+      "starttime": 3314675,
+      "uid": 0,
+      "rss": 3977216,
+      "rss_anon": 2383872,
+      "rss_file": 1593344,
+      "rss_shmem": 0,
+      "vm_hwm": 6717440,
+      "threads": 1,
+      "cgroup": "/user.slice/user-0.slice/session-1.scope",
+      "socket_inodes": [],
+      "fds_readable": true
+    },
+    {
+      "pid": 303794,
+      "comm": "fio",
+      "cmdline": [
+        "fio"
+      ],
+      "starttime": 3314975,
+      "uid": 0,
+      "rss": 21921792,
+      "rss_anon": 8396800,
+      "rss_file": 11198464,
+      "rss_shmem": 2326528,
+      "vm_hwm": 21921792,
+      "threads": 2,
+      "cgroup": "/user.slice/user-0.slice/session-1.scope",
+      "socket_inodes": [],
+      "fds_readable": true
+    },
+    {
+      "pid": 303795,
+      "comm": "cut",
+      "cmdline": [
+        "cut"
+      ],
+      "starttime": 3314975,
+      "uid": 0,
+      "rss": 1953792,
+      "rss_anon": 126976,
+      "rss_file": 1826816,
+      "rss_shmem": 0,
+      "vm_hwm": 1953792,
+      "threads": 1,
+      "cgroup": "/user.slice/user-0.slice/session-1.scope",
+      "socket_inodes": [],
+      "fds_readable": true
+    },
+    {
+      "pid": 303796,
+      "comm": "cut",
+      "cmdline": [
+        "cut"
+      ],
+      "starttime": 3314975,
+      "uid": 0,
+      "rss": 1949696,
+      "rss_anon": 131072,
+      "rss_file": 1818624,
+      "rss_shmem": 0,
+      "vm_hwm": 1949696,
+      "threads": 1,
+      "cgroup": "/user.slice/user-0.slice/session-1.scope",
+      "socket_inodes": [],
+      "fds_readable": true
+    },
+    {
+      "pid": 303804,
+      "comm": "fio",
+      "cmdline": [
+        "fio"
+      ],
+      "starttime": 3314984,
+      "uid": 0,
+      "rss": 11800576,
+      "rss_anon": 8613888,
+      "rss_file": 3080192,
+      "rss_shmem": 106496,
+      "vm_hwm": 11800576,
+      "threads": 1,
+      "cgroup": "/user.slice/user-0.slice/session-1.scope",
+      "socket_inodes": [],
+      "fds_readable": true
+    },
+    {
+      "pid": 303805,
+      "comm": "fio",
+      "cmdline": [
+        "fio"
+      ],
+      "starttime": 3314984,
+      "uid": 0,
+      "rss": 11825152,
+      "rss_anon": 8613888,
+      "rss_file": 3104768,
+      "rss_shmem": 106496,
+      "vm_hwm": 11825152,
+      "threads": 1,
+      "cgroup": "/user.slice/user-0.slice/session-1.scope",
+      "socket_inodes": [],
+      "fds_readable": true
+    }
+  ],
+  "cgroups": {
+    "/memopt/osd2": {
+      "path": "/memopt/osd2",
+      "current": 144097280,
+      "peak": 1525133312,
+      "max": 3221225472,
+      "high": null,
+      "nprocs": 1
+    },
+    "/memopt/osd3": {
+      "path": "/memopt/osd3",
+      "current": 73412608,
+      "peak": 1681125376,
+      "max": 3221225472,
+      "high": null,
+      "nprocs": 1
+    },
+    "/memopt/osd0": {
+      "path": "/memopt/osd0",
+      "current": 103227392,
+      "peak": 1391366144,
+      "max": 3221225472,
+      "high": null,
+      "nprocs": 1
+    },
+    "/memopt/osd1": {
+      "path": "/memopt/osd1",
+      "current": 133410816,
+      "peak": 1446981632,
+      "max": 3221225472,
+      "high": null,
+      "nprocs": 1
+    },
+    "/user.slice/user-0.slice/session-1.scope": {
+      "path": "/user.slice/user-0.slice/session-1.scope",
+      "current": 12111974400,
+      "peak": 29149745152,
+      "max": null,
+      "high": null,
+      "nprocs": 14
+    }
+  },
+  "daemons": [
+    {
+      "name": "mgr.x",
+      "kind": "mgr",
+      "socket": "/root/memopt/vs/asok/mgr.x.asok",
+      "pid": 294315,
+      "fsid": "ec4578a4-7c4e-4787-9f8d-8b40ca8c1f19",
+      "version": "21.3.0-4849-gdc7b747c37c",
+      "perf": {
+        "mempool": {
+          "bloom_filter_bytes": 0,
+          "bloom_filter_items": 0,
+          "bluefs_bytes": 0,
+          "bluefs_file_reader_bytes": 0,
+          "bluefs_file_reader_items": 0,
+          "bluefs_file_writer_bytes": 0,
+          "bluefs_file_writer_items": 0,
+          "bluefs_items": 0,
+          "bluestore_alloc_bytes": 0,
+          "bluestore_alloc_items": 0,
+          "bluestore_blob_bytes": 0,
+          "bluestore_blob_items": 0,
+          "bluestore_cache_buffer_bytes": 0,
+          "bluestore_cache_buffer_items": 0,
+          "bluestore_cache_data_bytes": 0,
+          "bluestore_cache_data_items": 0,
+          "bluestore_cache_meta_bytes": 0,
+          "bluestore_cache_meta_items": 0,
+          "bluestore_cache_onode_bytes": 0,
+          "bluestore_cache_onode_items": 0,
+          "bluestore_cache_other_bytes": 0,
+          "bluestore_cache_other_items": 0,
+          "bluestore_extent_bytes": 0,
+          "bluestore_extent_items": 0,
+          "bluestore_fsck_bytes": 0,
+          "bluestore_fsck_items": 0,
+          "bluestore_inline_bl_bytes": 0,
+          "bluestore_inline_bl_items": 0,
+          "bluestore_shared_blob_bytes": 0,
+          "bluestore_shared_blob_items": 0,
+          "bluestore_txc_bytes": 0,
+          "bluestore_txc_items": 0,
+          "bluestore_writing_bytes": 0,
+          "bluestore_writing_deferred_bytes": 0,
+          "bluestore_writing_deferred_items": 0,
+          "bluestore_writing_items": 0,
+          "buffer_anon_bytes": 718692,
+          "buffer_anon_items": 101,
+          "buffer_meta_bytes": 528,
+          "buffer_meta_items": 6,
+          "ec_extent_cache_bytes": 0,
+          "ec_extent_cache_items": 0,
+          "mds_co_bytes": 0,
+          "mds_co_items": 0,
+          "osd_bytes": 0,
+          "osd_items": 0,
+          "osd_mapbl_bytes": 0,
+          "osd_mapbl_items": 0,
+          "osd_pglog_bytes": 0,
+          "osd_pglog_items": 0,
+          "osdmap_bytes": 46608,
+          "osdmap_items": 607,
+          "osdmap_mapping_bytes": 0,
+          "osdmap_mapping_items": 0,
+          "pgmap_bytes": 482672,
+          "pgmap_items": 993,
+          "unittest_1_bytes": 0,
+          "unittest_1_items": 0,
+          "unittest_2_bytes": 0,
+          "unittest_2_items": 0
+        }
+      },
+      "mempools": {
+        "mempool": {
+          "by_pool": {
+            "bloom_filter": {
+              "bytes": 0,
+              "items": 0
+            },
+            "bluefs": {
+              "bytes": 0,
+              "items": 0
+            },
+            "bluefs_file_reader": {
+              "bytes": 0,
+              "items": 0
+            },
+            "bluefs_file_writer": {
+              "bytes": 0,
+              "items": 0
+            },
+            "bluestore_alloc": {
+              "bytes": 0,
+              "items": 0
+            },
+            "bluestore_blob": {
+              "bytes": 0,
+              "items": 0
+            },
+            "bluestore_cache_buffer": {
+              "bytes": 0,
+              "items": 0
+            },
+            "bluestore_cache_data": {
+              "bytes": 0,
+              "items": 0
+            },
+            "bluestore_cache_meta": {
+              "bytes": 0,
+              "items": 0
+            },
+            "bluestore_cache_onode": {
+              "bytes": 0,
+              "items": 0
+            },
+            "bluestore_cache_other": {
+              "bytes": 0,
+              "items": 0
+            },
+            "bluestore_extent": {
+              "bytes": 0,
+              "items": 0
+            },
+            "bluestore_fsck": {
+              "bytes": 0,
+              "items": 0
+            },
+            "bluestore_inline_bl": {
+              "bytes": 0,
+              "items": 0
+            },
+            "bluestore_shared_blob": {
+              "bytes": 0,
+              "items": 0
+            },
+            "bluestore_txc": {
+              "bytes": 0,
+              "items": 0
+            },
+            "bluestore_writing": {
+              "bytes": 0,
+              "items": 0
+            },
+            "bluestore_writing_deferred": {
+              "bytes": 0,
+              "items": 0
+            },
+            "buffer_anon": {
+              "bytes": 718692,
+              "items": 101
+            },
+            "buffer_meta": {
+              "bytes": 528,
+              "items": 6
+            },
+            "ec_extent_cache": {
+              "bytes": 0,
+              "items": 0
+            },
+            "mds_co": {
+              "bytes": 0,
+              "items": 0
+            },
+            "osd": {
+              "bytes": 0,
+              "items": 0
+            },
+            "osd_mapbl": {
+              "bytes": 0,
+              "items": 0
+            },
+            "osd_pglog": {
+              "bytes": 0,
+              "items": 0
+            },
+            "osdmap": {
+              "bytes": 46608,
+              "items": 607
+            },
+            "osdmap_mapping": {
+              "bytes": 0,
+              "items": 0
+            },
+            "pgmap": {
+              "bytes": 249208,
+              "items": 733
+            },
+            "unittest_1": {
+              "bytes": 0,
+              "items": 0
+            },
+            "unittest_2": {
+              "bytes": 0,
+              "items": 0
+            }
+          },
+          "total": {
+            "bytes": 1015036,
+            "items": 1447
+          }
+        }
+      },
+      "heap": "mgr.x tcmalloc heap stats:------------------------------------------------\nMALLOC:       63774568 (   60.8 MiB) Bytes in use by application\nMALLOC: +       630784 (    0.6 MiB) Bytes in page heap freelist\nMALLOC: +      1561096 (    1.5 MiB) Bytes in central cache freelist\nMALLOC: +      3465216 (    3.3 MiB) Bytes in transfer cache freelist\nMALLOC: +      7573136 (    7.2 MiB) Bytes in thread cache freelists\nMALLOC: +      2883584 (    2.8 MiB) Bytes in malloc metadata\nMALLOC:   ------------\nMALLOC: =     79888384 (   76.2 MiB) Actual memory used (physical + swap)\nMALLOC: +            0 (    0.0 MiB) Bytes released to OS (aka unmapped)\nMALLOC:   ------------\nMALLOC: =     79888384 (   76.2 MiB) Virtual address space used\nMALLOC:\nMALLOC:           3727              Spans in use\nMALLOC:             59              Thread heaps in use\nMALLOC:           8192              Tcmalloc page size\n------------------------------------------------\nCall ReleaseFreeMemory() to release freelist memory to the OS (via madvise()).\nBytes released to the OS take up virtual address space but no physical memory.\n",
+      "kv_stats": null,
+      "config": {},
+      "errors": [],
+      "spread_ms": 26,
+      "stale": false
+    },
+    {
+      "name": "mon.a",
+      "kind": "mon",
+      "socket": "/root/memopt/vs/asok/mon.a.asok",
+      "pid": 294157,
+      "fsid": "ec4578a4-7c4e-4787-9f8d-8b40ca8c1f19",
+      "version": "21.3.0-4849-gdc7b747c37c",
+      "perf": {
+        "mempool": {
+          "bloom_filter_bytes": 0,
+          "bloom_filter_items": 0,
+          "bluefs_bytes": 0,
+          "bluefs_file_reader_bytes": 0,
+          "bluefs_file_reader_items": 0,
+          "bluefs_file_writer_bytes": 0,
+          "bluefs_file_writer_items": 0,
+          "bluefs_items": 0,
+          "bluestore_alloc_bytes": 0,
+          "bluestore_alloc_items": 0,
+          "bluestore_blob_bytes": 0,
+          "bluestore_blob_items": 0,
+          "bluestore_cache_buffer_bytes": 0,
+          "bluestore_cache_buffer_items": 0,
+          "bluestore_cache_data_bytes": 0,
+          "bluestore_cache_data_items": 0,
+          "bluestore_cache_meta_bytes": 0,
+          "bluestore_cache_meta_items": 0,
+          "bluestore_cache_onode_bytes": 0,
+          "bluestore_cache_onode_items": 0,
+          "bluestore_cache_other_bytes": 0,
+          "bluestore_cache_other_items": 0,
+          "bluestore_extent_bytes": 0,
+          "bluestore_extent_items": 0,
+          "bluestore_fsck_bytes": 0,
+          "bluestore_fsck_items": 0,
+          "bluestore_inline_bl_bytes": 0,
+          "bluestore_inline_bl_items": 0,
+          "bluestore_shared_blob_bytes": 0,
+          "bluestore_shared_blob_items": 0,
+          "bluestore_txc_bytes": 0,
+          "bluestore_txc_items": 0,
+          "bluestore_writing_bytes": 0,
+          "bluestore_writing_deferred_bytes": 0,
+          "bluestore_writing_deferred_items": 0,
+          "bluestore_writing_items": 0,
+          "buffer_anon_bytes": 653902,
+          "buffer_anon_items": 215,
+          "buffer_meta_bytes": 0,
+          "buffer_meta_items": 0,
+          "ec_extent_cache_bytes": 0,
+          "ec_extent_cache_items": 0,
+          "mds_co_bytes": 0,
+          "mds_co_items": 0,
+          "osd_bytes": 0,
+          "osd_items": 0,
+          "osd_mapbl_bytes": 0,
+          "osd_mapbl_items": 0,
+          "osd_pglog_bytes": 0,
+          "osd_pglog_items": 0,
+          "osdmap_bytes": 4688,
+          "osdmap_items": 85,
+          "osdmap_mapping_bytes": 21376,
+          "osdmap_mapping_items": 2862,
+          "pgmap_bytes": 6336,
+          "pgmap_items": 72,
+          "unittest_1_bytes": 0,
+          "unittest_1_items": 0,
+          "unittest_2_bytes": 0,
+          "unittest_2_items": 0
+        },
+        "prioritycache": {
+          "cache_bytes": 1020054731,
+          "heap_bytes": 37658624,
+          "mapped_bytes": 36855808,
+          "target_bytes": 2147483648,
+          "unmapped_bytes": 802816
+        },
+        "prioritycache:full": {
+          "committed_bytes": 348127232,
+          "pri0_bytes": 0,
+          "pri10_bytes": 0,
+          "pri11_bytes": 277084379,
+          "pri1_bytes": 105457,
+          "pri2_bytes": 0,
+          "pri3_bytes": 0,
+          "pri4_bytes": 0,
+          "pri5_bytes": 0,
+          "pri6_bytes": 0,
+          "pri7_bytes": 0,
+          "pri8_bytes": 0,
+          "pri9_bytes": 0,
+          "reserved_bytes": 70937396
+        },
+        "prioritycache:inc": {
+          "committed_bytes": 348127232,
+          "pri0_bytes": 0,
+          "pri10_bytes": 0,
+          "pri11_bytes": 277084379,
+          "pri1_bytes": 39228,
+          "pri2_bytes": 0,
+          "pri3_bytes": 0,
+          "pri4_bytes": 0,
+          "pri5_bytes": 0,
+          "pri6_bytes": 0,
+          "pri7_bytes": 0,
+          "pri8_bytes": 0,
+          "pri9_bytes": 0,
+          "reserved_bytes": 71003625
+        },
+        "prioritycache:kv": {
+          "committed_bytes": 322961408,
+          "pri0_bytes": 67108864,
+          "pri10_bytes": 0,
+          "pri11_bytes": 184722919,
+          "pri1_bytes": 0,
+          "pri2_bytes": 0,
+          "pri3_bytes": 0,
+          "pri4_bytes": 0,
+          "pri5_bytes": 0,
+          "pri6_bytes": 0,
+          "pri7_bytes": 0,
+          "pri8_bytes": 0,
+          "pri9_bytes": 0,
+          "reserved_bytes": 71129625
+        },
+        "rocksdb": {
+          "compact": 0,
+          "compact_completed": 10,
+          "compact_lasted": 5.552e-05,
+          "compact_queue_len": 0,
+          "compact_queue_merge": 0,
+          "compact_running": 0,
+          "get_latency": {
+            "avgcount": 92427,
+            "avgtime": 4.583e-06,
+            "max_inc": 0.002564662,
+            "sum": 0.423653898
+          },
+          "rocksdb_write_delay_time": {
+            "avgcount": 0,
+            "avgtime": 0.0,
+            "sum": 0.0
+          },
+          "rocksdb_write_memtable_time": {
+            "avgcount": 0,
+            "avgtime": 0.0,
+            "sum": 0.0
+          },
+          "rocksdb_write_pre_and_post_time": {
+            "avgcount": 0,
+            "avgtime": 0.0,
+            "sum": 0.0
+          },
+          "rocksdb_write_wal_time": {
+            "avgcount": 0,
+            "avgtime": 0.0,
+            "sum": 0.0
+          },
+          "submit_latency": {
+            "avgcount": 0,
+            "avgtime": 0.0,
+            "sum": 0.0
+          },
+          "submit_sync_latency": {
+            "avgcount": 3417,
+            "avgtime": 0.037277433,
+            "max_inc": 4.472724751,
+            "sum": 127.376990691
+          }
+        },
+        "rocksdb-cache-default": {
+          "capacity": 322961408,
+          "elems": 195,
+          "hits": 147466,
+          "inserts": 3600,
+          "lookups": 151067,
+          "misses": 3601,
+          "pinned": 0,
+          "usage": 2388016
+        }
+      },
+      "mempools": {
+        "mempool": {
+          "by_pool": {
+            "bloom_filter": {
+              "bytes": 0,
+              "items": 0
+            },
+            "bluefs": {
+              "bytes": 0,
+              "items": 0
+            },
+            "bluefs_file_reader": {
+              "bytes": 0,
+              "items": 0
+            },
+            "bluefs_file_writer": {
+              "bytes": 0,
+              "items": 0
+            },
+            "bluestore_alloc": {
+              "bytes": 0,
+              "items": 0
+            },
+            "bluestore_blob": {
+              "bytes": 0,
+              "items": 0
+            },
+            "bluestore_cache_buffer": {
+              "bytes": 0,
+              "items": 0
+            },
+            "bluestore_cache_data": {
+              "bytes": 0,
+              "items": 0
+            },
+            "bluestore_cache_meta": {
+              "bytes": 0,
+              "items": 0
+            },
+            "bluestore_cache_onode": {
+              "bytes": 0,
+              "items": 0
+            },
+            "bluestore_cache_other": {
+              "bytes": 0,
+              "items": 0
+            },
+            "bluestore_extent": {
+              "bytes": 0,
+              "items": 0
+            },
+            "bluestore_fsck": {
+              "bytes": 0,
+              "items": 0
+            },
+            "bluestore_inline_bl": {
+              "bytes": 0,
+              "items": 0
+            },
+            "bluestore_shared_blob": {
+              "bytes": 0,
+              "items": 0
+            },
+            "bluestore_txc": {
+              "bytes": 0,
+              "items": 0
+            },
+            "bluestore_writing": {
+              "bytes": 0,
+              "items": 0
+            },
+            "bluestore_writing_deferred": {
+              "bytes": 0,
+              "items": 0
+            },
+            "buffer_anon": {
+              "bytes": 653902,
+              "items": 215
+            },
+            "buffer_meta": {
+              "bytes": 0,
+              "items": 0
+            },
+            "ec_extent_cache": {
+              "bytes": 0,
+              "items": 0
+            },
+            "mds_co": {
+              "bytes": 0,
+              "items": 0
+            },
+            "osd": {
+              "bytes": 0,
+              "items": 0
+            },
+            "osd_mapbl": {
+              "bytes": 0,
+              "items": 0
+            },
+            "osd_pglog": {
+              "bytes": 0,
+              "items": 0
+            },
+            "osdmap": {
+              "bytes": 4688,
+              "items": 85
+            },
+            "osdmap_mapping": {
+              "bytes": 21376,
+              "items": 2862
+            },
+            "pgmap": {
+              "bytes": 6336,
+              "items": 72
+            },
+            "unittest_1": {
+              "bytes": 0,
+              "items": 0
+            },
+            "unittest_2": {
+              "bytes": 0,
+              "items": 0
+            }
+          },
+          "total": {
+            "bytes": 686302,
+            "items": 3234
+          }
+        }
+      },
+      "heap": "mon.a tcmalloc heap stats:------------------------------------------------\nMALLOC:       25894384 (   24.7 MiB) Bytes in use by application\nMALLOC: +            0 (    0.0 MiB) Bytes in page heap freelist\nMALLOC: +       831792 (    0.8 MiB) Bytes in central cache freelist\nMALLOC: +      3006720 (    2.9 MiB) Bytes in transfer cache freelist\nMALLOC: +      7122912 (    6.8 MiB) Bytes in thread cache freelists\nMALLOC: +      2621440 (    2.5 MiB) Bytes in malloc metadata\nMALLOC:   ------------\nMALLOC: =     39477248 (   37.6 MiB) Actual memory used (physical + swap)\nMALLOC: +       802816 (    0.8 MiB) Bytes released to OS (aka unmapped)\nMALLOC:   ------------\nMALLOC: =     40280064 (   38.4 MiB) Virtual address space used\nMALLOC:\nMALLOC:           1221              Spans in use\nMALLOC:             24              Thread heaps in use\nMALLOC:           8192              Tcmalloc page size\n------------------------------------------------\nCall ReleaseFreeMemory() to release freelist memory to the OS (via madvise()).\nBytes released to the OS take up virtual address space but no physical memory.\n",
+      "kv_stats": null,
+      "config": {
+        "mon_memory_target": "2147483648"
+      },
+      "errors": [],
+      "spread_ms": 18,
+      "stale": false
+    },
+    {
+      "name": "osd.0",
+      "kind": "osd",
+      "socket": "/root/memopt/vs/asok/osd.0.asok",
+      "pid": 300167,
+      "fsid": "ec4578a4-7c4e-4787-9f8d-8b40ca8c1f19",
+      "version": "21.3.0-4849-gdc7b747c37c",
+      "perf": {
+        "bluestore-pricache": {
+          "cache_bytes": 1020054731,
+          "heap_bytes": 105193472,
+          "mapped_bytes": 101457920,
+          "target_bytes": 2147483648,
+          "unmapped_bytes": 3735552
+        },
+        "bluestore-pricache:data": {
+          "committed_bytes": 104857600,
+          "pri0_bytes": 0,
+          "pri10_bytes": 0,
+          "pri11_bytes": 35434427,
+          "pri1_bytes": 0,
+          "pri2_bytes": 0,
+          "pri3_bytes": 0,
+          "pri4_bytes": 0,
+          "pri5_bytes": 0,
+          "pri6_bytes": 0,
+          "pri7_bytes": 0,
+          "pri8_bytes": 0,
+          "pri9_bytes": 0,
+          "reserved_bytes": 69423173
+        },
+        "bluestore-pricache:kv": {
+          "committed_bytes": 402653184,
+          "pri0_bytes": 67108864,
+          "pri10_bytes": 0,
+          "pri11_bytes": 265758207,
+          "pri1_bytes": 0,
+          "pri2_bytes": 0,
+          "pri3_bytes": 0,
+          "pri4_bytes": 0,
+          "pri5_bytes": 0,
+          "pri6_bytes": 0,
+          "pri7_bytes": 0,
+          "pri8_bytes": 0,
+          "pri9_bytes": 0,
+          "reserved_bytes": 69786113
+        },
+        "bluestore-pricache:kv_onode": {
+          "committed_bytes": 159383552,
+          "pri0_bytes": 67108864,
+          "pri10_bytes": 1312,
+          "pri11_bytes": 23622951,
+          "pri1_bytes": 0,
+          "pri2_bytes": 0,
+          "pri3_bytes": 0,
+          "pri4_bytes": 0,
+          "pri5_bytes": 0,
+          "pri6_bytes": 0,
+          "pri7_bytes": 0,
+          "pri8_bytes": 0,
+          "pri9_bytes": 0,
+          "reserved_bytes": 68650425
+        },
+        "bluestore-pricache:meta": {
+          "committed_bytes": 339738624,
+          "pri0_bytes": 0,
+          "pri10_bytes": 0,
+          "pri11_bytes": 265758207,
+          "pri1_bytes": 5408518,
+          "pri2_bytes": 439442,
+          "pri3_bytes": 0,
+          "pri4_bytes": 0,
+          "pri5_bytes": 0,
+          "pri6_bytes": 0,
+          "pri7_bytes": 0,
+          "pri8_bytes": 0,
+          "pri9_bytes": 0,
+          "reserved_bytes": 68132457
+        },
+        "mempool": {
+          "bloom_filter_bytes": 0,
+          "bloom_filter_items": 0,
+          "bluefs_bytes": 10112,
+          "bluefs_file_reader_bytes": 58752,
+          "bluefs_file_reader_items": 22,
+          "bluefs_file_writer_bytes": 552,
+          "bluefs_file_writer_items": 3,
+          "bluefs_items": 150,
+          "bluestore_alloc_bytes": 147760,
+          "bluestore_alloc_items": 1847,
+          "bluestore_blob_bytes": 3371760,
+          "bluestore_blob_items": 28098,
+          "bluestore_cache_buffer_bytes": 6656,
+          "bluestore_cache_buffer_items": 82,
+          "bluestore_cache_data_bytes": 225116,
+          "bluestore_cache_data_items": 54,
+          "bluestore_cache_meta_bytes": 365541,
+          "bluestore_cache_meta_items": 46327,
+          "bluestore_cache_onode_bytes": 475932,
+          "bluestore_cache_onode_items": 858,
+          "bluestore_cache_other_bytes": 4137708,
+          "bluestore_cache_other_items": 510209,
+          "bluestore_extent_bytes": 1348704,
+          "bluestore_extent_items": 28098,
+          "bluestore_fsck_bytes": 0,
+          "bluestore_fsck_items": 0,
+          "bluestore_inline_bl_bytes": 2818,
+          "bluestore_inline_bl_items": 26,
+          "bluestore_shared_blob_bytes": 0,
+          "bluestore_shared_blob_items": 0,
+          "bluestore_txc_bytes": 0,
+          "bluestore_txc_items": 0,
+          "bluestore_writing_bytes": 40960,
+          "bluestore_writing_deferred_bytes": 0,
+          "bluestore_writing_deferred_items": 0,
+          "bluestore_writing_items": 10,
+          "buffer_anon_bytes": 2280731,
+          "buffer_anon_items": 50,
+          "buffer_meta_bytes": 6600,
+          "buffer_meta_items": 75,
+          "ec_extent_cache_bytes": 0,
+          "ec_extent_cache_items": 0,
+          "mds_co_bytes": 0,
+          "mds_co_items": 0,
+          "osd_bytes": 1761408,
+          "osd_items": 144,
+          "osd_mapbl_bytes": 0,
+          "osd_mapbl_items": 0,
+          "osd_pglog_bytes": 2207192,
+          "osd_pglog_items": 5319,
+          "osdmap_bytes": 95008,
+          "osdmap_items": 834,
+          "osdmap_mapping_bytes": 0,
+          "osdmap_mapping_items": 0,
+          "pgmap_bytes": 0,
+          "pgmap_items": 0,
+          "unittest_1_bytes": 0,
+          "unittest_1_items": 0,
+          "unittest_2_bytes": 0,
+          "unittest_2_items": 0
+        },
+        "rocksdb": {
+          "compact": 0,
+          "compact_completed": 0,
+          "compact_lasted": 0.0,
+          "compact_queue_len": 0,
+          "compact_queue_merge": 0,
+          "compact_running": 0,
+          "get_latency": {
+            "avgcount": 1635,
+            "avgtime": 8.868e-06,
+            "max_inc": 0.000565242,
+            "sum": 0.014499679
+          },
+          "rocksdb_write_delay_time": {
+            "avgcount": 5182,
+            "avgtime": 0.0,
+            "sum": 0.0
+          },
+          "rocksdb_write_memtable_time": {
+            "avgcount": 5182,
+            "avgtime": 2.2237e-05,
+            "max_inc": 0.003414997,
+            "sum": 0.115232576
+          },
+          "rocksdb_write_pre_and_post_time": {
+            "avgcount": 5182,
+            "avgtime": 3.554e-06,
+            "max_inc": 0.005511943,
+            "sum": 0.018420881
+          },
+          "rocksdb_write_wal_time": {
+            "avgcount": 5182,
+            "avgtime": 0.000468281,
+            "max_inc": 0.02443992,
+            "sum": 2.426636677
+          },
+          "submit_latency": {
+            "avgcount": 6433,
+            "avgtime": 5.7962e-05,
+            "max_inc": 0.005357443,
+            "sum": 0.3728729
+          },
+          "submit_sync_latency": {
+            "avgcount": 3475,
+            "avgtime": 0.004823233,
+            "max_inc": 0.466748952,
+            "sum": 16.760738141
+          }
+        },
+        "rocksdb-cache-O": {
+          "capacity": 159383552,
+          "elems": 21,
+          "hits": 4328,
+          "inserts": 21,
+          "lookups": 4350,
+          "misses": 22,
+          "pinned": 0,
+          "usage": 47664
+        },
+        "rocksdb-cache-default": {
+          "capacity": 402653184,
+          "elems": 82,
+          "hits": 3534,
+          "inserts": 82,
+          "lookups": 3617,
+          "misses": 83,
+          "pinned": 0,
+          "usage": 268064
+        }
+      },
+      "mempools": {
+        "mempool": {
+          "by_pool": {
+            "bloom_filter": {
+              "bytes": 0,
+              "items": 0
+            },
+            "bluefs": {
+              "bytes": 10112,
+              "items": 150
+            },
+            "bluefs_file_reader": {
+              "bytes": 58752,
+              "items": 22
+            },
+            "bluefs_file_writer": {
+              "bytes": 552,
+              "items": 3
+            },
+            "bluestore_alloc": {
+              "bytes": 225440,
+              "items": 2818
+            },
+            "bluestore_blob": {
+              "bytes": 3371760,
+              "items": 28098
+            },
+            "bluestore_cache_buffer": {
+              "bytes": 6656,
+              "items": 82
+            },
+            "bluestore_cache_data": {
+              "bytes": 225116,
+              "items": 54
+            },
+            "bluestore_cache_meta": {
+              "bytes": 365541,
+              "items": 46327
+            },
+            "bluestore_cache_onode": {
+              "bytes": 475932,
+              "items": 858
+            },
+            "bluestore_cache_other": {
+              "bytes": 4191852,
+              "items": 513593
+            },
+            "bluestore_extent": {
+              "bytes": 1348704,
+              "items": 28098
+            },
+            "bluestore_fsck": {
+              "bytes": 0,
+              "items": 0
+            },
+            "bluestore_inline_bl": {
+              "bytes": 2818,
+              "items": 26
+            },
+            "bluestore_shared_blob": {
+              "bytes": 0,
+              "items": 0
+            },
+            "bluestore_txc": {
+              "bytes": 0,
+              "items": 0
+            },
+            "bluestore_writing": {
+              "bytes": 53248,
+              "items": 13
+            },
+            "bluestore_writing_deferred": {
+              "bytes": 0,
+              "items": 0
+            },
+            "buffer_anon": {
+              "bytes": 2285955,
+              "items": 52
+            },
+            "buffer_meta": {
+              "bytes": 6864,
+              "items": 78
+            },
+            "ec_extent_cache": {
+              "bytes": 0,
+              "items": 0
+            },
+            "mds_co": {
+              "bytes": 0,
+              "items": 0
+            },
+            "osd": {
+              "bytes": 1761408,
+              "items": 144
+            },
+            "osd_mapbl": {
+              "bytes": 0,
+              "items": 0
+            },
+            "osd_pglog": {
+              "bytes": 2935832,
+              "items": 7087
+            },
+            "osdmap": {
+              "bytes": 95008,
+              "items": 834
+            },
+            "osdmap_mapping": {
+              "bytes": 0,
+              "items": 0
+            },
+            "pgmap": {
+              "bytes": 0,
+              "items": 0
+            },
+            "unittest_1": {
+              "bytes": 0,
+              "items": 0
+            },
+            "unittest_2": {
+              "bytes": 0,
+              "items": 0
+            }
+          },
+          "total": {
+            "bytes": 17421550,
+            "items": 628337
+          }
+        }
+      },
+      "heap": "osd.0 tcmalloc heap stats:------------------------------------------------\nMALLOC:       73212912 (   69.8 MiB) Bytes in use by application\nMALLOC: +            0 (    0.0 MiB) Bytes in page heap freelist\nMALLOC: +      4778864 (    4.6 MiB) Bytes in central cache freelist\nMALLOC: +     13614848 (   13.0 MiB) Bytes in transfer cache freelist\nMALLOC: +      9998752 (    9.5 MiB) Bytes in thread cache freelists\nMALLOC: +      3014656 (    2.9 MiB) Bytes in malloc metadata\nMALLOC:   ------------\nMALLOC: =    104620032 (   99.8 MiB) Actual memory used (physical + swap)\nMALLOC: +      3588096 (    3.4 MiB) Bytes released to OS (aka unmapped)\nMALLOC:   ------------\nMALLOC: =    108208128 (  103.2 MiB) Virtual address space used\nMALLOC:\nMALLOC:           5594              Spans in use\nMALLOC:             47              Thread heaps in use\nMALLOC:           8192              Tcmalloc page size\n------------------------------------------------\nCall ReleaseFreeMemory() to release freelist memory to the OS (via madvise()).\nBytes released to the OS take up virtual address space but no physical memory.\n",
+      "kv_stats": {
+        "block_cache_pinned_blocks_usage": "0",
+        "block_cache_usage": "268064",
+        "rocksdb_index_filter_blocks_usage": "5844",
+        "rocksdb_memtable_usage": "2048"
+      },
+      "config": {
+        "osd_memory_target": "2147483648",
+        "rocksdb_collect_memory_stats": "true",
+        "rocksdb_perf": "true"
+      },
+      "errors": [],
+      "spread_ms": 26,
+      "stale": false
+    },
+    {
+      "name": "osd.1",
+      "kind": "osd",
+      "socket": "/root/memopt/vs/asok/osd.1.asok",
+      "pid": 300168,
+      "fsid": "ec4578a4-7c4e-4787-9f8d-8b40ca8c1f19",
+      "version": "21.3.0-4849-gdc7b747c37c",
+      "perf": {
+        "bluestore-pricache": {
+          "cache_bytes": 1020054731,
+          "heap_bytes": 126255104,
+          "mapped_bytes": 124870656,
+          "target_bytes": 2147483648,
+          "unmapped_bytes": 1384448
+        },
+        "bluestore-pricache:data": {
+          "committed_bytes": 104857600,
+          "pri0_bytes": 0,
+          "pri10_bytes": 0,
+          "pri11_bytes": 34657077,
+          "pri1_bytes": 0,
+          "pri2_bytes": 212992,
+          "pri3_bytes": 65536,
+          "pri4_bytes": 0,
+          "pri5_bytes": 0,
+          "pri6_bytes": 0,
+          "pri7_bytes": 0,
+          "pri8_bytes": 0,
+          "pri9_bytes": 0,
+          "reserved_bytes": 69921995
+        },
+        "bluestore-pricache:kv": {
+          "committed_bytes": 394264576,
+          "pri0_bytes": 67108864,
+          "pri10_bytes": 0,
+          "pri11_bytes": 259928082,
+          "pri1_bytes": 0,
+          "pri2_bytes": 0,
+          "pri3_bytes": 0,
+          "pri4_bytes": 0,
+          "pri5_bytes": 0,
+          "pri6_bytes": 0,
+          "pri7_bytes": 0,
+          "pri8_bytes": 0,
+          "pri9_bytes": 0,
+          "reserved_bytes": 67227630
+        },
+        "bluestore-pricache:kv_onode": {
+          "committed_bytes": 159383552,
+          "pri0_bytes": 67108864,
+          "pri10_bytes": 0,
+          "pri11_bytes": 23104718,
+          "pri1_bytes": 0,
+          "pri2_bytes": 0,
+          "pri3_bytes": 0,
+          "pri4_bytes": 0,
+          "pri5_bytes": 0,
+          "pri6_bytes": 0,
+          "pri7_bytes": 0,
+          "pri8_bytes": 0,
+          "pri9_bytes": 0,
+          "reserved_bytes": 69169970
+        },
+        "bluestore-pricache:meta": {
+          "committed_bytes": 335544320,
+          "pri0_bytes": 0,
+          "pri10_bytes": 0,
+          "pri11_bytes": 259928082,
+          "pri1_bytes": 2445573,
+          "pri2_bytes": 3482406,
+          "pri3_bytes": 191588,
+          "pri4_bytes": 0,
+          "pri5_bytes": 0,
+          "pri6_bytes": 0,
+          "pri7_bytes": 0,
+          "pri8_bytes": 0,
+          "pri9_bytes": 0,
+          "reserved_bytes": 69496671
+        },
+        "mempool": {
+          "bloom_filter_bytes": 0,
+          "bloom_filter_items": 0,
+          "bluefs_bytes": 10616,
+          "bluefs_file_reader_bytes": 62976,
+          "bluefs_file_reader_items": 24,
+          "bluefs_file_writer_bytes": 552,
+          "bluefs_file_writer_items": 3,
+          "bluefs_items": 161,
+          "bluestore_alloc_bytes": 124000,
+          "bluestore_alloc_items": 1550,
+          "bluestore_blob_bytes": 3318000,
+          "bluestore_blob_items": 27650,
+          "bluestore_cache_buffer_bytes": 52352,
+          "bluestore_cache_buffer_items": 439,
+          "bluestore_cache_data_bytes": 13651804,
+          "bluestore_cache_data_items": 263,
+          "bluestore_cache_meta_bytes": 360780,
+          "bluestore_cache_meta_items": 45766,
+          "bluestore_cache_onode_bytes": 470762,
+          "bluestore_cache_onode_items": 850,
+          "bluestore_cache_other_bytes": 4063308,
+          "bluestore_cache_other_items": 501527,
+          "bluestore_extent_bytes": 1327200,
+          "bluestore_extent_items": 27650,
+          "bluestore_fsck_bytes": 0,
+          "bluestore_fsck_items": 0,
+          "bluestore_inline_bl_bytes": 2906,
+          "bluestore_inline_bl_items": 27,
+          "bluestore_shared_blob_bytes": 0,
+          "bluestore_shared_blob_items": 0,
+          "bluestore_txc_bytes": 47880,
+          "bluestore_txc_items": 63,
+          "bluestore_writing_bytes": 268176,
+          "bluestore_writing_deferred_bytes": 0,
+          "bluestore_writing_deferred_items": 0,
+          "bluestore_writing_items": 124,
+          "buffer_anon_bytes": 2373049,
+          "buffer_anon_items": 144,
+          "buffer_meta_bytes": 30184,
+          "buffer_meta_items": 343,
+          "ec_extent_cache_bytes": 0,
+          "ec_extent_cache_items": 0,
+          "mds_co_bytes": 0,
+          "mds_co_items": 0,
+          "osd_bytes": 1761408,
+          "osd_items": 144,
+          "osd_mapbl_bytes": 0,
+          "osd_mapbl_items": 0,
+          "osd_pglog_bytes": 2977248,
+          "osd_pglog_items": 7524,
+          "osdmap_bytes": 95008,
+          "osdmap_items": 834,
+          "osdmap_mapping_bytes": 0,
+          "osdmap_mapping_items": 0,
+          "pgmap_bytes": 0,
+          "pgmap_items": 0,
+          "unittest_1_bytes": 0,
+          "unittest_1_items": 0,
+          "unittest_2_bytes": 0,
+          "unittest_2_items": 0
+        },
+        "rocksdb": {
+          "compact": 0,
+          "compact_completed": 0,
+          "compact_lasted": 0.0,
+          "compact_queue_len": 0,
+          "compact_queue_merge": 0,
+          "compact_running": 0,
+          "get_latency": {
+            "avgcount": 1416,
+            "avgtime": 8.044e-06,
+            "max_inc": 0.000192061,
+            "sum": 0.011391394
+          },
+          "rocksdb_write_delay_time": {
+            "avgcount": 4440,
+            "avgtime": 0.0,
+            "sum": 0.0
+          },
+          "rocksdb_write_memtable_time": {
+            "avgcount": 4440,
+            "avgtime": 2.1644e-05,
+            "max_inc": 0.002254398,
+            "sum": 0.096101852
+          },
+          "rocksdb_write_pre_and_post_time": {
+            "avgcount": 4440,
+            "avgtime": 1.895e-06,
+            "max_inc": 0.000127829,
+            "sum": 0.00841621
+          },
+          "rocksdb_write_wal_time": {
+            "avgcount": 4440,
+            "avgtime": 0.001047553,
+            "max_inc": 0.069160001,
+            "sum": 4.65113554
+          },
+          "submit_latency": {
+            "avgcount": 8762,
+            "avgtime": 4.1201e-05,
+            "max_inc": 0.004560114,
+            "sum": 0.361004714
+          },
+          "submit_sync_latency": {
+            "avgcount": 3553,
+            "avgtime": 0.016429758,
+            "max_inc": 5.003772442,
+            "sum": 58.374931429
+          }
+        },
+        "rocksdb-cache-O": {
+          "capacity": 159383552,
+          "elems": 21,
+          "hits": 3046,
+          "inserts": 21,
+          "lookups": 3068,
+          "misses": 22,
+          "pinned": 0,
+          "usage": 46512
+        },
+        "rocksdb-cache-default": {
+          "capacity": 394264576,
+          "elems": 76,
+          "hits": 3068,
+          "inserts": 76,
+          "lookups": 3145,
+          "misses": 77,
+          "pinned": 0,
+          "usage": 238928
+        }
+      },
+      "mempools": {
+        "mempool": {
+          "by_pool": {
+            "bloom_filter": {
+              "bytes": 0,
+              "items": 0
+            },
+            "bluefs": {
+              "bytes": 10616,
+              "items": 161
+            },
+            "bluefs_file_reader": {
+              "bytes": 62976,
+              "items": 24
+            },
+            "bluefs_file_writer": {
+              "bytes": 552,
+              "items": 3
+            },
+            "bluestore_alloc": {
+              "bytes": 232720,
+              "items": 2909
+            },
+            "bluestore_blob": {
+              "bytes": 3318000,
+              "items": 27650
+            },
+            "bluestore_cache_buffer": {
+              "bytes": 54528,
+              "items": 456
+            },
+            "bluestore_cache_data": {
+              "bytes": 14151516,
+              "items": 278
+            },
+            "bluestore_cache_meta": {
+              "bytes": 360780,
+              "items": 45766
+            },
+            "bluestore_cache_onode": {
+              "bytes": 470762,
+              "items": 850
+            },
+            "bluestore_cache_other": {
+              "bytes": 4127356,
+              "items": 505530
+            },
+            "bluestore_extent": {
+              "bytes": 1327200,
+              "items": 27650
+            },
+            "bluestore_fsck": {
+              "bytes": 0,
+              "items": 0
+            },
+            "bluestore_inline_bl": {
+              "bytes": 2906,
+              "items": 27
+            },
+            "bluestore_shared_blob": {
+              "bytes": 0,
+              "items": 0
+            },
+            "bluestore_txc": {
+              "bytes": 46360,
+              "items": 61
+            },
+            "bluestore_writing": {
+              "bytes": 264376,
+              "items": 121
+            },
+            "bluestore_writing_deferred": {
+              "bytes": 0,
+              "items": 0
+            },
+            "buffer_anon": {
+              "bytes": 2348188,
+              "items": 129
+            },
+            "buffer_meta": {
+              "bytes": 30888,
+              "items": 351
+            },
+            "ec_extent_cache": {
+              "bytes": 0,
+              "items": 0
+            },
+            "mds_co": {
+              "bytes": 0,
+              "items": 0
+            },
+            "osd": {
+              "bytes": 1761408,
+              "items": 144
+            },
+            "osd_mapbl": {
+              "bytes": 0,
+              "items": 0
+            },
+            "osd_pglog": {
+              "bytes": 3838680,
+              "items": 9591
+            },
+            "osdmap": {
+              "bytes": 95008,
+              "items": 834
+            },
+            "osdmap_mapping": {
+              "bytes": 0,
+              "items": 0
+            },
+            "pgmap": {
+              "bytes": 0,
+              "items": 0
+            },
+            "unittest_1": {
+              "bytes": 0,
+              "items": 0
+            },
+            "unittest_2": {
+              "bytes": 0,
+              "items": 0
+            }
+          },
+          "total": {
+            "bytes": 32504820,
+            "items": 622535
+          }
+        }
+      },
+      "heap": "osd.1 tcmalloc heap stats:------------------------------------------------\nMALLOC:       96797592 (   92.3 MiB) Bytes in use by application\nMALLOC: +      1048576 (    1.0 MiB) Bytes in page heap freelist\nMALLOC: +      4254056 (    4.1 MiB) Bytes in central cache freelist\nMALLOC: +     13654784 (   13.0 MiB) Bytes in transfer cache freelist\nMALLOC: +     10827776 (   10.3 MiB) Bytes in thread cache freelists\nMALLOC: +      3014656 (    2.9 MiB) Bytes in malloc metadata\nMALLOC:   ------------\nMALLOC: =    129597440 (  123.6 MiB) Actual memory used (physical + swap)\nMALLOC: +       720896 (    0.7 MiB) Bytes released to OS (aka unmapped)\nMALLOC:   ------------\nMALLOC: =    130318336 (  124.3 MiB) Virtual address space used\nMALLOC:\nMALLOC:           5950              Spans in use\nMALLOC:             47              Thread heaps in use\nMALLOC:           8192              Tcmalloc page size\n------------------------------------------------\nCall ReleaseFreeMemory() to release freelist memory to the OS (via madvise()).\nBytes released to the OS take up virtual address space but no physical memory.\n",
+      "kv_stats": {
+        "block_cache_pinned_blocks_usage": "0",
+        "block_cache_usage": "238928",
+        "rocksdb_index_filter_blocks_usage": "5844",
+        "rocksdb_memtable_usage": "2048"
+      },
+      "config": {
+        "osd_memory_target": "2147483648",
+        "rocksdb_perf": "true",
+        "rocksdb_collect_memory_stats": "true"
+      },
+      "errors": [],
+      "spread_ms": 26,
+      "stale": false
+    },
+    {
+      "name": "osd.2",
+      "kind": "osd",
+      "socket": "/root/memopt/vs/asok/osd.2.asok",
+      "pid": 300169,
+      "fsid": "ec4578a4-7c4e-4787-9f8d-8b40ca8c1f19",
+      "version": "21.3.0-4849-gdc7b747c37c",
+      "perf": {
+        "bluestore-pricache": {
+          "cache_bytes": 1020054731,
+          "heap_bytes": 142008320,
+          "mapped_bytes": 133218304,
+          "target_bytes": 2147483648,
+          "unmapped_bytes": 8790016
+        },
+        "bluestore-pricache:data": {
+          "committed_bytes": 104857600,
+          "pri0_bytes": 0,
+          "pri10_bytes": 0,
+          "pri11_bytes": 35127469,
+          "pri1_bytes": 0,
+          "pri2_bytes": 1441792,
+          "pri3_bytes": 0,
+          "pri4_bytes": 0,
+          "pri5_bytes": 0,
+          "pri6_bytes": 0,
+          "pri7_bytes": 0,
+          "pri8_bytes": 0,
+          "pri9_bytes": 0,
+          "reserved_bytes": 68288339
+        },
+        "bluestore-pricache:kv": {
+          "committed_bytes": 398458880,
+          "pri0_bytes": 67108864,
+          "pri10_bytes": 0,
+          "pri11_bytes": 263456017,
+          "pri1_bytes": 0,
+          "pri2_bytes": 0,
+          "pri3_bytes": 128,
+          "pri4_bytes": 0,
+          "pri5_bytes": 0,
+          "pri6_bytes": 0,
+          "pri7_bytes": 0,
+          "pri8_bytes": 0,
+          "pri9_bytes": 0,
+          "reserved_bytes": 67893871
+        },
+        "bluestore-pricache:kv_onode": {
+          "committed_bytes": 159383552,
+          "pri0_bytes": 67108864,
+          "pri10_bytes": 0,
+          "pri11_bytes": 23418312,
+          "pri1_bytes": 0,
+          "pri2_bytes": 0,
+          "pri3_bytes": 0,
+          "pri4_bytes": 0,
+          "pri5_bytes": 0,
+          "pri6_bytes": 0,
+          "pri7_bytes": 0,
+          "pri8_bytes": 0,
+          "pri9_bytes": 0,
+          "reserved_bytes": 68856376
+        },
+        "bluestore-pricache:meta": {
+          "committed_bytes": 339738624,
+          "pri0_bytes": 0,
+          "pri10_bytes": 0,
+          "pri11_bytes": 263456017,
+          "pri1_bytes": 8206270,
+          "pri2_bytes": 605672,
+          "pri3_bytes": 0,
+          "pri4_bytes": 0,
+          "pri5_bytes": 0,
+          "pri6_bytes": 0,
+          "pri7_bytes": 0,
+          "pri8_bytes": 0,
+          "pri9_bytes": 0,
+          "reserved_bytes": 67470665
+        },
+        "mempool": {
+          "bloom_filter_bytes": 0,
+          "bloom_filter_items": 0,
+          "bluefs_bytes": 10616,
+          "bluefs_file_reader_bytes": 58880,
+          "bluefs_file_reader_items": 24,
+          "bluefs_file_writer_bytes": 552,
+          "bluefs_file_writer_items": 3,
+          "bluefs_items": 161,
+          "bluestore_alloc_bytes": 159600,
+          "bluestore_alloc_items": 1995,
+          "bluestore_blob_bytes": 4653960,
+          "bluestore_blob_items": 38783,
+          "bluestore_cache_buffer_bytes": 13824,
+          "bluestore_cache_buffer_items": 138,
+          "bluestore_cache_data_bytes": 1699676,
+          "bluestore_cache_data_items": 74,
+          "bluestore_cache_meta_bytes": 503424,
+          "bluestore_cache_meta_items": 63197,
+          "bluestore_cache_onode_bytes": 643748,
+          "bluestore_cache_onode_items": 1124,
+          "bluestore_cache_other_bytes": 5717760,
+          "bluestore_cache_other_items": 704774,
+          "bluestore_extent_bytes": 1861584,
+          "bluestore_extent_items": 38783,
+          "bluestore_fsck_bytes": 0,
+          "bluestore_fsck_items": 0,
+          "bluestore_inline_bl_bytes": 8538,
+          "bluestore_inline_bl_items": 49,
+          "bluestore_shared_blob_bytes": 0,
+          "bluestore_shared_blob_items": 0,
+          "bluestore_txc_bytes": 28120,
+          "bluestore_txc_items": 37,
+          "bluestore_writing_bytes": 182680,
+          "bluestore_writing_deferred_bytes": 0,
+          "bluestore_writing_deferred_items": 0,
+          "bluestore_writing_items": 79,
+          "buffer_anon_bytes": 2377645,
+          "buffer_anon_items": 124,
+          "buffer_meta_bytes": 15312,
+          "buffer_meta_items": 174,
+          "ec_extent_cache_bytes": 0,
+          "ec_extent_cache_items": 0,
+          "mds_co_bytes": 0,
+          "mds_co_items": 0,
+          "osd_bytes": 2532024,
+          "osd_items": 207,
+          "osd_mapbl_bytes": 0,
+          "osd_mapbl_items": 0,
+          "osd_pglog_bytes": 4115712,
+          "osd_pglog_items": 11488,
+          "osdmap_bytes": 80320,
+          "osdmap_items": 736,
+          "osdmap_mapping_bytes": 0,
+          "osdmap_mapping_items": 0,
+          "pgmap_bytes": 0,
+          "pgmap_items": 0,
+          "unittest_1_bytes": 0,
+          "unittest_1_items": 0,
+          "unittest_2_bytes": 0,
+          "unittest_2_items": 0
+        },
+        "rocksdb": {
+          "compact": 0,
+          "compact_completed": 0,
+          "compact_lasted": 0.0,
+          "compact_queue_len": 0,
+          "compact_queue_merge": 0,
+          "compact_running": 0,
+          "get_latency": {
+            "avgcount": 2046,
+            "avgtime": 1.0784e-05,
+            "max_inc": 0.000205555,
+            "sum": 0.022064202
+          },
+          "rocksdb_write_delay_time": {
+            "avgcount": 5995,
+            "avgtime": 0.0,
+            "sum": 0.0
+          },
+          "rocksdb_write_memtable_time": {
+            "avgcount": 5995,
+            "avgtime": 2.5882e-05,
+            "max_inc": 0.004637863,
+            "sum": 0.155167913
+          },
+          "rocksdb_write_pre_and_post_time": {
+            "avgcount": 5995,
+            "avgtime": 1.647e-06,
+            "max_inc": 0.000104803,
+            "sum": 0.009874456
+          },
+          "rocksdb_write_wal_time": {
+            "avgcount": 5995,
+            "avgtime": 0.000644327,
+            "max_inc": 0.079551174,
+            "sum": 3.862744468
+          },
+          "submit_latency": {
+            "avgcount": 10917,
+            "avgtime": 7.18e-05,
+            "max_inc": 0.274549573,
+            "sum": 0.783843076
+          },
+          "submit_sync_latency": {
+            "avgcount": 4548,
+            "avgtime": 0.008403204,
+            "max_inc": 1.550755634,
+            "sum": 38.217775395
+          }
+        },
+        "rocksdb-cache-O": {
+          "capacity": 159383552,
+          "elems": 21,
+          "hits": 4081,
+          "inserts": 21,
+          "lookups": 4103,
+          "misses": 22,
+          "pinned": 0,
+          "usage": 48688
+        },
+        "rocksdb-cache-default": {
+          "capacity": 398458880,
+          "elems": 85,
+          "hits": 4324,
+          "inserts": 85,
+          "lookups": 4410,
+          "misses": 86,
+          "pinned": 0,
+          "usage": 272240
+        }
+      },
+      "mempools": {
+        "mempool": {
+          "by_pool": {
+            "bloom_filter": {
+              "bytes": 0,
+              "items": 0
+            },
+            "bluefs": {
+              "bytes": 10616,
+              "items": 161
+            },
+            "bluefs_file_reader": {
+              "bytes": 58880,
+              "items": 24
+            },
+            "bluefs_file_writer": {
+              "bytes": 552,
+              "items": 3
+            },
+            "bluestore_alloc": {
+              "bytes": 198720,
+              "items": 2484
+            },
+            "bluestore_blob": {
+              "bytes": 4653960,
+              "items": 38783
+            },
+            "bluestore_cache_buffer": {
+              "bytes": 9600,
+              "items": 105
+            },
+            "bluestore_cache_data": {
+              "bytes": 1699676,
+              "items": 74
+            },
+            "bluestore_cache_meta": {
+              "bytes": 503424,
+              "items": 63197
+            },
+            "bluestore_cache_onode": {
+              "bytes": 643748,
+              "items": 1124
+            },
+            "bluestore_cache_other": {
+              "bytes": 5794384,
+              "items": 709563
+            },
+            "bluestore_extent": {
+              "bytes": 1861584,
+              "items": 38783
+            },
+            "bluestore_fsck": {
+              "bytes": 0,
+              "items": 0
+            },
+            "bluestore_inline_bl": {
+              "bytes": 8538,
+              "items": 49
+            },
+            "bluestore_shared_blob": {
+              "bytes": 0,
+              "items": 0
+            },
+            "bluestore_txc": {
+              "bytes": 2280,
+              "items": 3
+            },
+            "bluestore_writing": {
+              "bytes": 112128,
+              "items": 30
+            },
+            "bluestore_writing_deferred": {
+              "bytes": 0,
+              "items": 0
+            },
+            "buffer_anon": {
+              "bytes": 2286838,
+              "items": 54
+            },
+            "buffer_meta": {
+              "bytes": 11968,
+              "items": 136
+            },
+            "ec_extent_cache": {
+              "bytes": 0,
+              "items": 0
+            },
+            "mds_co": {
+              "bytes": 0,
+              "items": 0
+            },
+            "osd": {
+              "bytes": 2532024,
+              "items": 207
+            },
+            "osd_mapbl": {
+              "bytes": 0,
+              "items": 0
+            },
+            "osd_pglog": {
+              "bytes": 5180488,
+              "items": 14261
+            },
+            "osdmap": {
+              "bytes": 80320,
+              "items": 736
+            },
+            "osdmap_mapping": {
+              "bytes": 0,
+              "items": 0
+            },
+            "pgmap": {
+              "bytes": 0,
+              "items": 0
+            },
+            "unittest_1": {
+              "bytes": 0,
+              "items": 0
+            },
+            "unittest_2": {
+              "bytes": 0,
+              "items": 0
+            }
+          },
+          "total": {
+            "bytes": 25649728,
+            "items": 869777
+          }
+        }
+      },
+      "heap": "osd.2 tcmalloc heap stats:------------------------------------------------\nMALLOC:      102102072 (   97.4 MiB) Bytes in use by application\nMALLOC: +      1048576 (    1.0 MiB) Bytes in page heap freelist\nMALLOC: +      5691776 (    5.4 MiB) Bytes in central cache freelist\nMALLOC: +     13718272 (   13.1 MiB) Bytes in transfer cache freelist\nMALLOC: +     12058440 (   11.5 MiB) Bytes in thread cache freelists\nMALLOC: +      5111808 (    4.9 MiB) Bytes in malloc metadata\nMALLOC:   ------------\nMALLOC: =    139730944 (  133.3 MiB) Actual memory used (physical + swap)\nMALLOC: +      7389184 (    7.0 MiB) Bytes released to OS (aka unmapped)\nMALLOC:   ------------\nMALLOC: =    147120128 (  140.3 MiB) Virtual address space used\nMALLOC:\nMALLOC:           7092              Spans in use\nMALLOC:             47              Thread heaps in use\nMALLOC:           8192              Tcmalloc page size\n------------------------------------------------\nCall ReleaseFreeMemory() to release freelist memory to the OS (via madvise()).\nBytes released to the OS take up virtual address space but no physical memory.\n",
+      "kv_stats": {
+        "block_cache_pinned_blocks_usage": "0",
+        "block_cache_usage": "272240",
+        "rocksdb_index_filter_blocks_usage": "5844",
+        "rocksdb_memtable_usage": "2048"
+      },
+      "config": {
+        "osd_memory_target": "2147483648",
+        "rocksdb_perf": "true",
+        "rocksdb_collect_memory_stats": "true"
+      },
+      "errors": [],
+      "spread_ms": 22,
+      "stale": false
+    },
+    {
+      "name": "osd.3",
+      "kind": "osd",
+      "socket": "/root/memopt/vs/asok/osd.3.asok",
+      "pid": 300170,
+      "fsid": "ec4578a4-7c4e-4787-9f8d-8b40ca8c1f19",
+      "version": "21.3.0-4849-gdc7b747c37c",
+      "perf": {
+        "bluestore-pricache": {
+          "cache_bytes": 1020054731,
+          "heap_bytes": 77578240,
+          "mapped_bytes": 69648384,
+          "target_bytes": 2147483648,
+          "unmapped_bytes": 7929856
+        },
+        "bluestore-pricache:data": {
+          "committed_bytes": 104857600,
+          "pri0_bytes": 0,
+          "pri10_bytes": 0,
+          "pri11_bytes": 35936793,
+          "pri1_bytes": 0,
+          "pri2_bytes": 0,
+          "pri3_bytes": 0,
+          "pri4_bytes": 0,
+          "pri5_bytes": 0,
+          "pri6_bytes": 0,
+          "pri7_bytes": 0,
+          "pri8_bytes": 0,
+          "pri9_bytes": 0,
+          "reserved_bytes": 68920807
+        },
+        "bluestore-pricache:kv": {
+          "committed_bytes": 406847488,
+          "pri0_bytes": 67108864,
+          "pri10_bytes": 0,
+          "pri11_bytes": 269525948,
+          "pri1_bytes": 0,
+          "pri2_bytes": 0,
+          "pri3_bytes": 128,
+          "pri4_bytes": 0,
+          "pri5_bytes": 0,
+          "pri6_bytes": 0,
+          "pri7_bytes": 0,
+          "pri8_bytes": 0,
+          "pri9_bytes": 0,
+          "reserved_bytes": 70212548
+        },
+        "bluestore-pricache:kv_onode": {
+          "committed_bytes": 159383552,
+          "pri0_bytes": 67108864,
+          "pri10_bytes": 1312,
+          "pri11_bytes": 23957862,
+          "pri1_bytes": 0,
+          "pri2_bytes": 0,
+          "pri3_bytes": 0,
+          "pri4_bytes": 0,
+          "pri5_bytes": 0,
+          "pri6_bytes": 0,
+          "pri7_bytes": 0,
+          "pri8_bytes": 0,
+          "pri9_bytes": 0,
+          "reserved_bytes": 68315514
+        },
+        "bluestore-pricache:meta": {
+          "committed_bytes": 339738624,
+          "pri0_bytes": 0,
+          "pri10_bytes": 0,
+          "pri11_bytes": 269525948,
+          "pri1_bytes": 349853,
+          "pri2_bytes": 34492,
+          "pri3_bytes": 0,
+          "pri4_bytes": 0,
+          "pri5_bytes": 0,
+          "pri6_bytes": 0,
+          "pri7_bytes": 0,
+          "pri8_bytes": 0,
+          "pri9_bytes": 0,
+          "reserved_bytes": 69828331
+        },
+        "mempool": {
+          "bloom_filter_bytes": 0,
+          "bloom_filter_items": 0,
+          "bluefs_bytes": 9880,
+          "bluefs_file_reader_bytes": 50688,
+          "bluefs_file_reader_items": 24,
+          "bluefs_file_writer_bytes": 552,
+          "bluefs_file_writer_items": 3,
+          "bluefs_items": 142,
+          "bluestore_alloc_bytes": 1360,
+          "bluestore_alloc_items": 17,
+          "bluestore_blob_bytes": 482880,
+          "bluestore_blob_items": 4024,
+          "bluestore_cache_buffer_bytes": 11648,
+          "bluestore_cache_buffer_items": 121,
+          "bluestore_cache_data_bytes": 125202,
+          "bluestore_cache_data_items": 30,
+          "bluestore_cache_meta_bytes": 102542,
+          "bluestore_cache_meta_items": 14910,
+          "bluestore_cache_onode_bytes": 172997,
+          "bluestore_cache_onode_items": 312,
+          "bluestore_cache_other_bytes": 576100,
+          "bluestore_cache_other_items": 71661,
+          "bluestore_extent_bytes": 193152,
+          "bluestore_extent_items": 4024,
+          "bluestore_fsck_bytes": 0,
+          "bluestore_fsck_items": 0,
+          "bluestore_inline_bl_bytes": 2818,
+          "bluestore_inline_bl_items": 26,
+          "bluestore_shared_blob_bytes": 0,
+          "bluestore_shared_blob_items": 0,
+          "bluestore_txc_bytes": 46360,
+          "bluestore_txc_items": 61,
+          "bluestore_writing_bytes": 1952,
+          "bluestore_writing_deferred_bytes": 282467,
+          "bluestore_writing_deferred_items": 68,
+          "bluestore_writing_items": 61,
+          "buffer_anon_bytes": 2291147,
+          "buffer_anon_items": 53,
+          "buffer_meta_bytes": 9768,
+          "buffer_meta_items": 111,
+          "ec_extent_cache_bytes": 0,
+          "ec_extent_cache_items": 0,
+          "mds_co_bytes": 0,
+          "mds_co_items": 0,
+          "osd_bytes": 232408,
+          "osd_items": 19,
+          "osd_mapbl_bytes": 0,
+          "osd_mapbl_items": 0,
+          "osd_pglog_bytes": 289856,
+          "osd_pglog_items": 616,
+          "osdmap_bytes": 65600,
+          "osdmap_items": 648,
+          "osdmap_mapping_bytes": 0,
+          "osdmap_mapping_items": 0,
+          "pgmap_bytes": 0,
+          "pgmap_items": 0,
+          "unittest_1_bytes": 0,
+          "unittest_1_items": 0,
+          "unittest_2_bytes": 0,
+          "unittest_2_items": 0
+        },
+        "rocksdb": {
+          "compact": 0,
+          "compact_completed": 0,
+          "compact_lasted": 0.0,
+          "compact_queue_len": 0,
+          "compact_queue_merge": 0,
+          "compact_running": 0,
+          "get_latency": {
+            "avgcount": 370,
+            "avgtime": 1.8151e-05,
+            "max_inc": 0.00012087,
+            "sum": 0.006716048
+          },
+          "rocksdb_write_delay_time": {
+            "avgcount": 821,
+            "avgtime": 0.0,
+            "sum": 0.0
+          },
+          "rocksdb_write_memtable_time": {
+            "avgcount": 821,
+            "avgtime": 3.4267e-05,
+            "max_inc": 0.00123756,
+            "sum": 0.028133551
+          },
+          "rocksdb_write_pre_and_post_time": {
+            "avgcount": 821,
+            "avgtime": 4.251e-06,
+            "max_inc": 0.001009425,
+            "sum": 0.003490416
+          },
+          "rocksdb_write_wal_time": {
+            "avgcount": 821,
+            "avgtime": 0.000636741,
+            "max_inc": 0.029739013,
+            "sum": 0.522764863
+          },
+          "submit_latency": {
+            "avgcount": 3934,
+            "avgtime": 3.418e-05,
+            "max_inc": 0.00493925,
+            "sum": 0.134466293
+          },
+          "submit_sync_latency": {
+            "avgcount": 927,
+            "avgtime": 0.001090287,
+            "max_inc": 0.09052725,
+            "sum": 1.010696274
+          }
+        },
+        "rocksdb-cache-O": {
+          "capacity": 159383552,
+          "elems": 19,
+          "hits": 811,
+          "inserts": 19,
+          "lookups": 831,
+          "misses": 20,
+          "pinned": 0,
+          "usage": 38352
+        },
+        "rocksdb-cache-default": {
+          "capacity": 406847488,
+          "elems": 31,
+          "hits": 715,
+          "inserts": 31,
+          "lookups": 747,
+          "misses": 32,
+          "pinned": 0,
+          "usage": 78336
+        }
+      },
+      "mempools": {
+        "mempool": {
+          "by_pool": {
+            "bloom_filter": {
+              "bytes": 0,
+              "items": 0
+            },
+            "bluefs": {
+              "bytes": 9904,
+              "items": 144
+            },
+            "bluefs_file_reader": {
+              "bytes": 50688,
+              "items": 24
+            },
+            "bluefs_file_writer": {
+              "bytes": 552,
+              "items": 3
+            },
+            "bluestore_alloc": {
+              "bytes": 1360,
+              "items": 17
+            },
+            "bluestore_blob": {
+              "bytes": 482880,
+              "items": 4024
+            },
+            "bluestore_cache_buffer": {
+              "bytes": 8576,
+              "items": 97
+            },
+            "bluestore_cache_data": {
+              "bytes": 125202,
+              "items": 30
+            },
+            "bluestore_cache_meta": {
+              "bytes": 102542,
+              "items": 14910
+            },
+            "bluestore_cache_onode": {
+              "bytes": 172997,
+              "items": 312
+            },
+            "bluestore_cache_other": {
+              "bytes": 575716,
+              "items": 71637
+            },
+            "bluestore_extent": {
+              "bytes": 193152,
+              "items": 4024
+            },
+            "bluestore_fsck": {
+              "bytes": 0,
+              "items": 0
+            },
+            "bluestore_inline_bl": {
+              "bytes": 2818,
+              "items": 26
+            },
+            "bluestore_shared_blob": {
+              "bytes": 0,
+              "items": 0
+            },
+            "bluestore_txc": {
+              "bytes": 28120,
+              "items": 37
+            },
+            "bluestore_writing": {
+              "bytes": 5640,
+              "items": 38
+            },
+            "bluestore_writing_deferred": {
+              "bytes": 172507,
+              "items": 43
+            },
+            "buffer_anon": {
+              "bytes": 2296342,
+              "items": 58
+            },
+            "buffer_meta": {
+              "bytes": 7656,
+              "items": 87
+            },
+            "ec_extent_cache": {
+              "bytes": 0,
+              "items": 0
+            },
+            "mds_co": {
+              "bytes": 0,
+              "items": 0
+            },
+            "osd": {
+              "bytes": 232408,
+              "items": 19
+            },
+            "osd_mapbl": {
+              "bytes": 0,
+              "items": 0
+            },
+            "osd_pglog": {
+              "bytes": 387272,
+              "items": 829
+            },
+            "osdmap": {
+              "bytes": 65600,
+              "items": 648
+            },
+            "osdmap_mapping": {
+              "bytes": 0,
+              "items": 0
+            },
+            "pgmap": {
+              "bytes": 0,
+              "items": 0
+            },
+            "unittest_1": {
+              "bytes": 0,
+              "items": 0
+            },
+            "unittest_2": {
+              "bytes": 0,
+              "items": 0
+            }
+          },
+          "total": {
+            "bytes": 4921932,
+            "items": 97007
+          }
+        }
+      },
+      "heap": "osd.3 tcmalloc heap stats:------------------------------------------------\nMALLOC:       56622840 (   54.0 MiB) Bytes in use by application\nMALLOC: +            0 (    0.0 MiB) Bytes in page heap freelist\nMALLOC: +      1937744 (    1.8 MiB) Bytes in central cache freelist\nMALLOC: +      5939968 (    5.7 MiB) Bytes in transfer cache freelist\nMALLOC: +      5147832 (    4.9 MiB) Bytes in thread cache freelists\nMALLOC: +      2752512 (    2.6 MiB) Bytes in malloc metadata\nMALLOC:   ------------\nMALLOC: =     72400896 (   69.0 MiB) Actual memory used (physical + swap)\nMALLOC: +      7929856 (    7.6 MiB) Bytes released to OS (aka unmapped)\nMALLOC:   ------------\nMALLOC: =     80330752 (   76.6 MiB) Virtual address space used\nMALLOC:\nMALLOC:           2203              Spans in use\nMALLOC:             36              Thread heaps in use\nMALLOC:           8192              Tcmalloc page size\n------------------------------------------------\nCall ReleaseFreeMemory() to release freelist memory to the OS (via madvise()).\nBytes released to the OS take up virtual address space but no physical memory.\n",
+      "kv_stats": {
+        "block_cache_pinned_blocks_usage": "0",
+        "block_cache_usage": "78336",
+        "rocksdb_index_filter_blocks_usage": "5845",
+        "rocksdb_memtable_usage": "1050624"
+      },
+      "config": {
+        "rocksdb_perf": "true",
+        "rocksdb_collect_memory_stats": "true",
+        "osd_memory_target": "2147483648"
+      },
+      "errors": [],
+      "spread_ms": 26,
+      "stale": false
+    }
+  ],
+  "spread_ms": 30
+}

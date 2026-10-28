@@ -1,0 +1,111 @@
+# ceph-memtop
+
+Where is this Ceph node's memory? A terminal tool that accounts for a host's memory from the
+node total downward, one Ceph daemon at a time, with every level adding up. Rust, one static
+binary, no runtime dependencies.
+
+```
+cargo build --release --target x86_64-unknown-linux-musl
+target/x86_64-unknown-linux-musl/release/ceph-memtop            # the terminal UI
+ceph-memtop --once                                              # one text snapshot
+ceph-memtop --once --json | jq .                                # one structured snapshot
+ceph-memtop --check                                             # verify the identities, exit 1 on failure
+ceph-memtop --record fixtures/myhost --interval 1               # record samples to replay later
+ceph-memtop --replay fixtures/myhost --check                    # test without a cluster
+```
+
+Discovery needs no configuration on a host with daemons under `/var/run/ceph` (plain or per
+cluster fsid) or on a `vstart.sh` tree (`$VSTART_DEST/asok`, `./build/asok`, `./build/out`,
+and every bound `*.asok` the kernel lists). `--asok` and `--asok-dir` add paths. Daemons whose
+socket cannot be read are listed with the reason, never omitted.
+
+## The two identities
+
+**Node**: rows sum to MemTotal. Each Ceph daemon is charged its anonymous resident memory
+(`RssAnon`); its file-backed pages belong to the page cache row, where the kernel keeps them.
+
+```
+MemTotal = free + page cache (Cached + Buffers - Shmem) + shmem + slab
+         + kernel (KernelStack + PageTables + Percpu) + huge pages
+         + anon: each ceph daemon + other processes + anon in no process
+         + other (MemTotal - everything named: vmalloc, drivers, DMA)
+```
+
+Anonymous pages shared by several processes (fork COW) count once in `AnonPages` but in each
+process's `RssAnon`; that difference is shown as a signed correction row, not hidden. Socket
+buffers and vmalloc are shown as reference rows: real, but inside slab and "other".
+
+**Daemon**: rows sum to the daemon's RSS.
+
+| row | source |
+|---|---|
+| cache: data | mempool `bluestore_cache_data` |
+| cache: meta | the eight mempools BlueStore's meta cache counts (`BlueStore.h` `MetaCache::_get_used_bytes`) |
+| cache: kv, kv_onode | `rocksdb-cache-default.usage`, `rocksdb-cache-O.usage` (perf dump) |
+| budget per cache | `*-pricache:<cache>.committed_bytes` |
+| RocksDB memtables | `dump_objectstore_kv_stats` `rocksdb_memtable_usage`: needs `rocksdb_perf` and `rocksdb_collect_memory_stats` (`--enable-kv-stats`) |
+| RocksDB SST index/filter blocks | the same dump, `rocksdb_index_filter_blocks_usage` |
+| PG log, OSD maps, allocator, in-flight writes, BlueFS, buffers, other | mempools by group (`--raw` shows the keys) |
+| heap, not in any mempool | tcmalloc "in use by application" minus the rows above |
+| allocator: free lists and metadata | tcmalloc "actual" minus "in use" |
+| anon outside the heap | `RssAnon` minus the resident heap |
+| file-backed, shared memory | `RssFile`, `RssShmem` |
+
+Rows marked `?` are residuals, `ref` rows are not summed. Without tcmalloc the heap rows merge
+into "heap, not in any mempool, plus allocator free lists" from the priority cache's
+`mapped_bytes`; without that, into "anon, unattributed". A derived value that comes out negative
+is shown as `n/a` with the suspect source named; the level then does not reconcile and `--check`
+says so.
+
+The mempool undercounts the pg log (about 785 bytes per entry and 178 per dup are real against
+552 and 104 counted), so an OSD under write load keeps a sizeable "heap, not in any mempool"
+row. That row is the point of the tool, not a bug in it.
+
+## Peaks
+
+Every row carries a peak. Two kinds, labelled apart:
+
+* `peak:kernel`: `VmHWM` and the cgroup's `memory.peak`, recorded by the kernel, correct whenever
+  the tool started. Their time is when the tool first saw the value (`<start` if it was already
+  there).
+* `peak:seen`: the largest value this tool sampled since start, reset or restart. A spike between
+  two samples is invisible; the sampling period is shown next to the columns.
+
+Peaks never add up: parts peak at different moments. Only current values reconcile. `r` resets
+the selected row's seen peak, `R` all of them; a daemon restart (new pid or start time) resets
+its peaks and rates and is announced in its state column for ten samples.
+
+## Samples
+
+All sources of one tick are read under one monotonic timestamp. Socket reads run on their own
+threads with a budget; a daemon that does not answer in time keeps its last values and is marked
+`stale`, and a sample whose reads spread wider than `--max-spread` is marked degraded and used
+for neither rates nor peaks. Rates divide by the measured interval.
+
+## Writes
+
+Read-only, except `--enable-kv-stats`, which sets `rocksdb_perf` and
+`rocksdb_collect_memory_stats` on OSDs that lack them after asking (`--yes` skips the question),
+and restores them on exit, on SIGINT/SIGTERM/SIGHUP, and on a panic. Switches already on are left
+alone. The per-PG pglog view (`g` on an OSD) shells out to `ceph pg dump pgs` with the daemon's
+own conf (`-c`), `--conf`, or `$CEPH_CONF`, and reads "unavailable" when that fails.
+
+## Tests
+
+`cargo test` runs the unit tests and the replay tests on `fixtures/`: `vstart-idle` (4 samples,
+mon/mgr/4 OSDs, main 21.3.0 dev build with tcmalloc, on c28) and `vstart-write` (23 samples
+under 4K random writes, RocksDB statistics on). The replay tests check that both identities hold
+on every sample, that two replays are identical, that the reported peak is the sample maximum
+with its timestamp, that a restart clears peaks and rates, that a build without heap statistics
+still adds up (derived from the idle fixture by dropping the heap text), that a degraded sample is
+shown but not tracked, and that unknown values stay blank.
+
+Not yet covered by a recorded fixture: a production (cephadm) node, other Ceph releases, a build
+without tcmalloc, MDS and RGW daemons. `--record` on such a host produces one.
+
+## Known limits
+
+* Ceph exports memtable usage as one total; per column family would need a daemon change.
+* The mon's full/inc osdmap caches report their size but their bytes live in the mempool rows, so
+  they are shown as reference rows.
+* A process's `RssAnon` is attributed whole; THP and page-table sharing are not corrected.

@@ -1,0 +1,370 @@
+//! Tracking across samples: peaks, rates, growth streaks and restarts, per row. Memory is one
+//! Track per row; samples are not retained.
+
+use crate::model::{daemon_account, node_account, DaemonAccount, NodeAccount, Row};
+use crate::peaks::{AuthPeak, Track};
+use crate::raw::RawSample;
+use serde::Serialize;
+use std::collections::BTreeMap;
+
+#[derive(Clone, Debug, Default, Serialize)]
+pub struct TrackedRow {
+    #[serde(flatten)]
+    pub row: Row,
+    pub track: Track,
+}
+
+#[derive(Clone, Debug, Default, Serialize)]
+pub struct NodeView {
+    pub total: Option<u64>,
+    pub rows: Vec<TrackedRow>,
+    pub residual_pct: Option<u64>,
+    pub problems: Vec<String>,
+    pub degraded: bool,
+}
+
+#[derive(Clone, Debug, Default, Serialize)]
+pub struct DaemonView {
+    pub account: DaemonAccount,
+    pub rows: Vec<TrackedRow>,
+    pub socket: Option<String>,
+    pub version: Option<String>,
+    pub fsid: Option<String>,
+    pub rss: Track,
+    /// The kernel's own peak RSS (VmHWM).
+    pub rss_kernel_peak: AuthPeak,
+    pub cgroup: Track,
+    /// memory.peak of the cgroup, which outlives the process.
+    pub cgroup_kernel_peak: AuthPeak,
+    pub errors: Vec<String>,
+    pub conf: Option<String>,
+    pub bindir: Option<String>,
+    pub stale: bool,
+    pub degraded: bool,
+    /// Wall time of the last restart seen, and whether to announce it.
+    pub restarted_at: Option<u64>,
+    pub spread_ms: u64,
+}
+
+#[derive(Clone, Debug, Default, Serialize)]
+pub struct View {
+    pub seq: u64,
+    pub wall_ms: u64,
+    pub mono_ms: u64,
+    /// Measured interval between this and the previous sample, ms: the resolution of observed peaks.
+    pub sampling_ms: Option<u64>,
+    pub node: NodeView,
+    pub daemons: Vec<DaemonView>,
+}
+
+#[derive(Default)]
+struct DaemonState {
+    pid: Option<u32>,
+    starttime: u64,
+    rows: BTreeMap<String, Track>,
+    rss: Track,
+    rss_auth: AuthPeak,
+    cg: Track,
+    cg_auth: AuthPeak,
+    restarted_at: Option<u64>,
+    restart_ticks_left: u8,
+}
+
+#[derive(Default)]
+pub struct State {
+    node: BTreeMap<String, Track>,
+    daemons: BTreeMap<String, DaemonState>,
+    last_mono: Option<u64>,
+    /// Reads spread wider than this (ms) make a sample degraded.
+    pub max_spread_ms: u64,
+}
+
+impl State {
+    pub fn new(max_spread_ms: u64) -> State {
+        State {
+            max_spread_ms,
+            ..Default::default()
+        }
+    }
+
+    pub fn ingest(&mut self, s: &RawSample) -> View {
+        let sampling_ms = self.last_mono.map(|m| s.mono_ms.saturating_sub(m));
+        self.last_mono = Some(s.mono_ms);
+        let node_good = s.spread_ms <= self.max_spread_ms;
+        let na: NodeAccount = node_account(s);
+        let mut node = NodeView {
+            total: na.total,
+            residual_pct: na.residual_pct,
+            problems: na.problems.clone(),
+            degraded: !node_good,
+            rows: Vec::new(),
+        };
+        let mut seen = std::collections::HashSet::new();
+        for r in &na.rows {
+            let t = self.node.entry(r.id.clone()).or_default();
+            t.update(r.value, s.mono_ms, s.wall_ms, node_good);
+            seen.insert(r.id.clone());
+            node.rows.push(TrackedRow {
+                row: r.clone(),
+                track: t.clone(),
+            });
+        }
+        self.node.retain(|k, _| seen.contains(k));
+        let mut daemons = Vec::new();
+        let mut names = std::collections::HashSet::new();
+        for d in &s.daemons {
+            names.insert(d.name.clone());
+            let p = d.pid.and_then(|pid| s.procs.iter().find(|p| p.pid == pid));
+            let st = self.daemons.entry(d.name.clone()).or_default();
+            // a new pid or a new start time for the same pid is a restart: nothing from before applies
+            let restarted = match (st.pid, p) {
+                (Some(old), Some(p)) => old != p.pid || st.starttime != p.starttime,
+                (Some(_), None) => true,
+                (None, _) => false,
+            };
+            if restarted {
+                let keep_cg = (st.cg.clone(), st.cg_auth.clone());
+                *st = DaemonState {
+                    restarted_at: Some(s.wall_ms),
+                    restart_ticks_left: 10,
+                    ..Default::default()
+                };
+                st.cg = keep_cg.0;
+                st.cg_auth = keep_cg.1;
+            } else if st.restart_ticks_left > 0 {
+                st.restart_ticks_left -= 1;
+            }
+            st.pid = p.map(|p| p.pid);
+            st.starttime = p.map_or(0, |p| p.starttime);
+            let good = !d.stale && d.spread_ms <= self.max_spread_ms && node_good;
+            let acc = daemon_account(d, p, s);
+            let mut rows = Vec::new();
+            let mut seen = std::collections::HashSet::new();
+            for r in &acc.rows {
+                let t = st.rows.entry(r.id.clone()).or_default();
+                t.update(r.value, s.mono_ms, s.wall_ms, good);
+                seen.insert(r.id.clone());
+                rows.push(TrackedRow {
+                    row: r.clone(),
+                    track: t.clone(),
+                });
+            }
+            st.rows.retain(|k, _| seen.contains(k));
+            st.rss.update(acc.rss, s.mono_ms, s.wall_ms, node_good);
+            st.rss_auth.update(acc.vm_hwm, s.wall_ms);
+            st.cg.update(
+                acc.cgroup.as_ref().and_then(|c| c.current),
+                s.mono_ms,
+                s.wall_ms,
+                node_good,
+            );
+            st.cg_auth
+                .update(acc.cgroup.as_ref().and_then(|c| c.peak), s.wall_ms);
+            daemons.push(DaemonView {
+                socket: d.socket.clone(),
+                version: d.version.clone(),
+                fsid: d.fsid.clone(),
+                rss: st.rss.clone(),
+                rss_kernel_peak: st.rss_auth.clone(),
+                cgroup: st.cg.clone(),
+                cgroup_kernel_peak: st.cg_auth.clone(),
+                errors: d.errors.clone(),
+                conf: d.conf.clone(),
+                bindir: d.bindir.clone(),
+                stale: d.stale,
+                degraded: !good,
+                restarted_at: if st.restart_ticks_left > 0 {
+                    st.restarted_at
+                } else {
+                    None
+                },
+                spread_ms: d.spread_ms,
+                account: acc,
+                rows,
+            });
+        }
+        self.daemons.retain(|k, _| names.contains(k));
+        daemons.sort_by(|a, b| a.account.name.cmp(&b.account.name));
+        View {
+            seq: s.seq,
+            wall_ms: s.wall_ms,
+            mono_ms: s.mono_ms,
+            sampling_ms,
+            node,
+            daemons,
+        }
+    }
+
+    /// Clear every observed peak (kernel peaks are not ours to clear).
+    pub fn reset_all_peaks(&mut self) {
+        for t in self.node.values_mut() {
+            t.reset_peak();
+        }
+        for d in self.daemons.values_mut() {
+            d.rss.reset_peak();
+            d.cg.reset_peak();
+            for t in d.rows.values_mut() {
+                t.reset_peak();
+            }
+        }
+    }
+
+    /// Clear one row's observed peak: a node row, a daemon's RSS, or a row inside a daemon.
+    pub fn reset_peak(&mut self, daemon: Option<&str>, row: &str) {
+        match daemon {
+            None => {
+                if let Some(t) = self.node.get_mut(row) {
+                    t.reset_peak();
+                }
+            }
+            Some(d) => {
+                if let Some(st) = self.daemons.get_mut(d) {
+                    if row == "rss" {
+                        st.rss.reset_peak();
+                        st.cg.reset_peak();
+                    } else if let Some(t) = st.rows.get_mut(row) {
+                        t.reset_peak();
+                    }
+                }
+            }
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::proc::{MemInfo, ProcInfo};
+    use crate::raw::RawDaemon;
+
+    fn sample(seq: u64, anon: u64, pid: u32, starttime: u64, pglog: u64) -> RawSample {
+        let meminfo = MemInfo(
+            [
+                ("MemTotal", 10_000u64),
+                ("MemFree", 1000),
+                ("Cached", 1000),
+                ("Buffers", 0),
+                ("Shmem", 0),
+                ("Slab", 500),
+                ("KernelStack", 0),
+                ("PageTables", 0),
+                ("Percpu", 0),
+                ("AnonPages", anon + 100),
+            ]
+            .iter()
+            .map(|(k, v)| (k.to_string(), *v))
+            .collect(),
+        );
+        let p = ProcInfo {
+            pid,
+            comm: "ceph-osd".into(),
+            starttime,
+            cmdline: vec!["ceph-osd".into(), "-i".into(), "0".into()],
+            rss: Some(anon + 10),
+            rss_anon: Some(anon),
+            rss_file: Some(10),
+            rss_shmem: Some(0),
+            vm_hwm: Some(anon + 50),
+            ..Default::default()
+        };
+        let d = RawDaemon {
+            name: "osd.0".into(),
+            kind: "osd".into(),
+            pid: Some(pid),
+            mempools: Some(
+                serde_json::json!({"mempool": {"by_pool": {"osd_pglog": {"items": 1, "bytes": pglog}}}}),
+            ),
+            ..Default::default()
+        };
+        RawSample {
+            seq,
+            wall_ms: 1_000_000 + seq * 2000,
+            mono_ms: seq * 2000,
+            meminfo,
+            procs: vec![p],
+            daemons: vec![d],
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn peaks_follow_rows_and_restarts_clear_them() {
+        let mut st = State::new(500);
+        let v1 = st.ingest(&sample(0, 500, 7, 100, 20));
+        assert_eq!(v1.sampling_ms, None);
+        let v2 = st.ingest(&sample(1, 900, 7, 100, 60));
+        assert_eq!(v2.sampling_ms, Some(2000));
+        let d = &v2.daemons[0];
+        assert_eq!(d.rss.peak, Some((910, 1_002_000)));
+        assert_eq!(d.rss_kernel_peak.value, Some(950));
+        let pg = d.rows.iter().find(|r| r.row.id == "nocache:pglog").unwrap();
+        assert_eq!(pg.track.peak, Some((60, 1_002_000)));
+        assert_eq!(pg.track.rate, Some(20));
+        // same pid, new start time: a restart
+        let v3 = st.ingest(&sample(2, 300, 7, 200, 10));
+        let d = &v3.daemons[0];
+        assert_eq!(d.restarted_at, Some(1_004_000));
+        assert_eq!(d.rss.peak, Some((310, 1_004_000)), "the old peak is gone");
+        assert_eq!(d.rss_kernel_peak.value, Some(350));
+        let pg = d.rows.iter().find(|r| r.row.id == "nocache:pglog").unwrap();
+        assert_eq!(pg.track.rate, None, "no rate across a restart");
+        assert_eq!(pg.track.peak, Some((10, 1_004_000)));
+    }
+
+    #[test]
+    fn totals_do_not_sum_peaks() {
+        // two rows peaking at different moments: the total's peak is its own maximum, below the sum of the row peaks
+        let mut st = State::new(500);
+        st.ingest(&sample(0, 500, 7, 100, 100));
+        st.ingest(&sample(1, 500, 7, 100, 10));
+        let v = st.ingest(&sample(2, 200, 7, 100, 10));
+        let d = &v.daemons[0];
+        let rows_peak_sum: u64 = d
+            .rows
+            .iter()
+            .filter(|r| !r.row.reference)
+            .filter_map(|r| r.track.peak.map(|p| p.0))
+            .sum();
+        assert_eq!(d.rss.peak.unwrap().0, 510);
+        assert!(
+            rows_peak_sum > 510,
+            "the parts peaked apart: {} > 510",
+            rows_peak_sum
+        );
+    }
+
+    #[test]
+    fn reset_clears_only_observed_peaks() {
+        let mut st = State::new(500);
+        st.ingest(&sample(0, 500, 7, 100, 100));
+        st.reset_all_peaks();
+        let v = st.ingest(&sample(1, 100, 7, 100, 5));
+        let d = &v.daemons[0];
+        assert_eq!(d.rss.peak, Some((110, 1_002_000)));
+        assert_eq!(
+            d.rss_kernel_peak.value,
+            Some(550),
+            "the kernel's VmHWM is not ours to reset"
+        );
+        st.reset_peak(Some("osd.0"), "nocache:pglog");
+        let v = st.ingest(&sample(2, 100, 7, 100, 3));
+        let pg = v.daemons[0]
+            .rows
+            .iter()
+            .find(|r| r.row.id == "nocache:pglog")
+            .unwrap();
+        assert_eq!(pg.track.peak, Some((3, 1_004_000)));
+    }
+
+    #[test]
+    fn degraded_samples_are_shown_but_not_tracked() {
+        let mut st = State::new(500);
+        st.ingest(&sample(0, 500, 7, 100, 100));
+        let mut s = sample(1, 900, 7, 100, 900);
+        s.spread_ms = 5000;
+        let v = st.ingest(&s);
+        assert!(v.node.degraded && v.daemons[0].degraded);
+        assert_eq!(v.daemons[0].rss.cur, Some(910));
+        assert_eq!(v.daemons[0].rss.peak, Some((510, 1_000_000)));
+    }
+}
