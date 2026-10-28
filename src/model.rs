@@ -772,7 +772,7 @@ pub fn daemon_account(d: &RawDaemon, p: Option<&ProcInfo>, s: &RawSample) -> Dae
         } else if default_only {
             r.note("default column family only (tiny next to the live WAL): the sharded families sit in 'heap, not in any mempool'")
         } else {
-            r.note("all column families")
+            r.note("all column families with the GetAggregatedIntProperty fix in dump_objectstore_kv_stats; an older daemon reports the default one")
         });
         let r = Row::new(
             "nocache:sst_readers",
@@ -786,7 +786,7 @@ pub fn daemon_account(d: &RawDaemon, p: Option<&ProcInfo>, s: &RawSample) -> Dae
         } else if default_only {
             r.note("default column family only")
         } else {
-            r.note("all column families")
+            r.note("all column families only with the fix; see the memtables row")
         });
         rows.push(
             Row::new(
@@ -1608,7 +1608,7 @@ mod tests {
             .find(|r| r.id == "nocache:memtables")
             .unwrap()
             .note;
-        assert!(n.contains("all column families"), "{}", n);
+        assert!(n.contains("all column families with the"), "{}", n);
     }
 
     #[test]
