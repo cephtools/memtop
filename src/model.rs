@@ -470,6 +470,10 @@ pub struct CephSide {
     pub non_heap: Option<u64>,
     /// Usage under the priority caches: data and meta mempools plus the RocksDB block caches.
     pub caches_used: Option<u64>,
+    /// The part of that inside the mempools (data and meta caches).
+    pub mempool_caches: Option<u64>,
+    /// The part outside them (the kv and kv_onode block caches): in heap_in_use, not in mempool_total.
+    pub block_caches: Option<u64>,
     /// mempool_total minus the data and meta cache mempools.
     pub uncached_mempool: Option<u64>,
     /// The tuner's own view of the heap (perf dump mapped_bytes, unmapped_bytes).
@@ -792,9 +796,9 @@ pub fn daemon_account(d: &RawDaemon, p: Option<&ProcInfo>, s: &RawSample) -> Dae
         });
         let r = Row::new(
             "nocache:sst_readers",
-            "RocksDB SST index/filter blocks",
+            "RocksDB table readers outside the block cache",
             sst_readers,
-            "dump_objectstore_kv_stats rocksdb_index_filter_blocks_usage",
+            "dump_objectstore_kv_stats rocksdb_index_filter_blocks_usage (rocksdb.estimate-table-readers-mem)",
         )
         .optional();
         rows.push(if sst_readers.is_none() {
@@ -813,7 +817,7 @@ pub fn daemon_account(d: &RawDaemon, p: Option<&ProcInfo>, s: &RawSample) -> Dae
             )
             .reference()
             .optional()
-            .note("bounds the memtables: a WAL file lives until every column family flushed its entries"),
+            .note("every write still in a memtable is in a live WAL; the memtables run ~10 % above it; a WAL file lives until every column family flushed it"),
         );
     }
     if d.kind == "osd" {
@@ -889,7 +893,7 @@ pub fn daemon_account(d: &RawDaemon, p: Option<&ProcInfo>, s: &RawSample) -> Dae
                         Some(un as u64),
                         "tcmalloc in use - rows above",
                     )
-                    .note("RocksDB, the pglog undercount, C++ objects")
+                    .note("mostly the PG log beyond its count (estimate below), size-class rounding on mempool objects, startup objects (log/perf buffers, allocator tree, scrubbers)")
                     .residual(),
                 );
             } else if have_pools {
@@ -1180,6 +1184,8 @@ fn sides(
         allocator_overhead: overhead.flatten(),
         non_heap: non_heap.flatten(),
         caches_used: sum_rows(&["cache:data", "cache:meta", "cache:kv", "cache:kv_onode"]),
+        mempool_caches: cache_pools,
+        block_caches: sum_rows(&["cache:kv", "cache:kv_onode"]),
         uncached_mempool: match (mempool_total, cache_pools) {
             (Some(t), Some(c)) => Some(t.saturating_sub(c)),
             (Some(t), None) => Some(t),
@@ -1552,6 +1558,8 @@ mod tests {
         assert_eq!(c.allocator_overhead, Some(100));
         assert_eq!(c.non_heap, Some(400));
         assert_eq!(c.caches_used, Some(50 + 25 + 30 + 10));
+        assert_eq!(c.mempool_caches, Some(50 + 25));
+        assert_eq!(c.block_caches, Some(30 + 10));
         assert_eq!(c.uncached_mempool, Some(213 - 75));
         assert_eq!(c.mempool_rows, Some(213));
         assert!(a.matches.iter().all(|m| m.ok), "{:?}", a.matches);

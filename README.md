@@ -61,8 +61,8 @@ buffers and vmalloc are shown as reference rows: real, but inside slab and "othe
 | cache: kv, kv_onode | `rocksdb-cache-default.usage`, `rocksdb-cache-O.usage` (perf dump) |
 | budget per cache | `*-pricache:<cache>.committed_bytes` |
 | RocksDB memtables | `dump_objectstore_kv_stats` `rocksdb_memtable_usage`: needs `rocksdb_perf` and `rocksdb_collect_memory_stats` (`--enable-kv-stats`); see the limits below |
-| RocksDB SST index/filter blocks | the same dump, `rocksdb_index_filter_blocks_usage` |
-| RocksDB WAL alive (reference) | `bluefs files list`, the sizes under `db.wal/`: a WAL file lives until every column family flushed its entries, so the memtables cannot exceed it by much |
+| RocksDB table readers outside the block cache | the same dump, `rocksdb_index_filter_blocks_usage` (`rocksdb.estimate-table-readers-mem`): index and filter blocks count here only when they are not in the block cache |
+| RocksDB WAL alive (reference) | `bluefs files list`, the sizes under `db.wal/`: every write still in a memtable is in a live WAL, and the memtables run about 10 % above it; a WAL file lives until every column family flushed it |
 | PG log beyond the mempool count (reference, estimate) | `osd_pglog` items and bytes solved into entries and dups; 233 B per entry and 74 B per dup over the counted 552 and 104, measured with a heap profile: index maps, list nodes, size-class rounding |
 | PG log, OSD maps, allocator, in-flight writes, BlueFS, buffers, other | mempools by group (`--raw` shows the keys) |
 | heap, not in any mempool | tcmalloc "in use by application" minus the rows above |
@@ -106,8 +106,11 @@ rss
 │  │  │  │  └─ un-cached: PG log, OSD maps, allocator, in-flight writes, BlueFS, buffers, other mempools
 │  │  │  └─ untracked (heap_in_use - mempool_total)
 │  │  │     ├─ RocksDB block caches (kv, kv_onode)
-│  │  │     ├─ RocksDB memtables and SST readers, as far as the daemon reports them
+│  │  │     ├─ RocksDB memtables
+│  │  │     │  └─ RocksDB WAL alive (reference: what the memtables hold)
+│  │  │     ├─ RocksDB table readers outside the block cache
 │  │  │     └─ not in any mempool (residual)
+│  │  │        └─ PG log beyond the mempool count (reference, estimate)
 │  │  ├─ allocator: free lists and metadata (allocator_overhead)
 │  │  └─ held but not resident (reference)
 │  └─ anon outside heap (stacks, other allocators)

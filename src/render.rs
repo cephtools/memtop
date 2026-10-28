@@ -471,7 +471,7 @@ pub fn daemon_summary(d: &DaemonView, sampling_ms: Option<u64>) -> Vec<String> {
     out.push(format!(
         "         mempool_total {} (caches {} + un-cached {}) | heap_in_use {} | heap_actual {} | tuner sees mapped {}, unmapped {}",
         na(c.mempool_total),
-        na(c.caches_used),
+        na(c.mempool_caches),
         na(c.uncached_mempool),
         na(c.heap_in_use),
         na(c.heap_actual),
@@ -485,6 +485,21 @@ pub fn daemon_summary(d: &DaemonView, sampling_ms: Option<u64>) -> Vec<String> {
         neg(c.allocator_overhead, c.heap_actual.is_some()),
         neg(c.non_heap, c.heap_actual.is_some() && k.rss.is_some()),
     ));
+    // what the untracked part is made of, as the tree shows it
+    if c.untracked.is_some() {
+        let row = |id: &str| a.rows.iter().find(|r| r.id == id).and_then(|r| r.value);
+        let residual = row("heap:unattributed")
+            .or_else(|| row("heap:rest"))
+            .or_else(|| row("anon:unattributed"));
+        out.push(format!(
+            "         untracked {} = block caches {} + memtables {} + table readers {} + residual {}",
+            na(c.untracked),
+            na(c.block_caches),
+            na(row("nocache:memtables")),
+            na(row("nocache:sst_readers")),
+            na(residual),
+        ));
+    }
     // 3. the two must agree: one check per line
     for (i, m) in a.matches.iter().enumerate() {
         out.push(format!(
@@ -706,18 +721,19 @@ fn daemon_tree(d: &DaemonView) -> Vec<Node> {
             kv,
         ));
     }
-    for (id, label) in [
-        ("nocache:memtables", "RocksDB memtables"),
-        ("nocache:sst_readers", "RocksDB SST index/filter blocks"),
-        ("ref:wal_alive", "RocksDB WAL alive (BlueFS db.wal)"),
-        (
-            "ref:pglog_uncounted",
-            "PG log beyond the mempool count (estimate)",
-        ),
-    ] {
-        if let Some(n) = Node::leaf_if(rows, id, label) {
-            untracked.push(n);
+    // the memtables with the live WAL beneath them: the reference that explains their size
+    if let Some(mut m) = Node::leaf_if(rows, "nocache:memtables", "RocksDB memtables") {
+        if let Some(w) = Node::leaf_if(rows, "ref:wal_alive", "RocksDB WAL alive (BlueFS db.wal)") {
+            m.children.push(w);
         }
+        untracked.push(m);
+    }
+    if let Some(n) = Node::leaf_if(
+        rows,
+        "nocache:sst_readers",
+        "RocksDB table readers outside the block cache",
+    ) {
+        untracked.push(n);
     }
     let residual_id = if has("heap:unattributed") {
         "heap:unattributed"
@@ -726,11 +742,16 @@ fn daemon_tree(d: &DaemonView) -> Vec<Node> {
     } else {
         "anon:unattributed"
     };
-    untracked.push(Node::leaf(
+    // the residual with the estimate of its largest part beneath it
+    let mut residual = Node::leaf(rows, residual_id, "not in any mempool (residual)");
+    if let Some(p) = Node::leaf_if(
         rows,
-        residual_id,
-        "not in any mempool (residual)",
-    ));
+        "ref:pglog_uncounted",
+        "PG log beyond the mempool count (estimate)",
+    ) {
+        residual.children.push(p);
+    }
+    untracked.push(residual);
     let untracked_v = sum_nodes(&untracked);
     let untracked_node = Node::agg(
         "untracked (heap_in_use - mempool_total)",
