@@ -375,8 +375,14 @@ pub fn node_summary(v: &View) -> Vec<String> {
         nothers,
         none
     ));
-    for p in &n.problems {
-        out.push(format!("problem  {}", p));
+    let c = &v.checks;
+    if c.ok {
+        out.push(format!(
+            "checks   ok: node rows = MemTotal, daemon rows = rss, cross-checks hold, residuals within tolerance{}",
+            if c.unchecked.is_empty() { String::new() } else { format!(" (not checked: {})", c.unchecked.join(" ")) }
+        ));
+    } else {
+        out.push(format!("checks   FAILED: {}", c.failures.join("; ")));
     }
     out
 }

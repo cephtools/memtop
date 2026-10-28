@@ -9,9 +9,8 @@ cargo build --release --target x86_64-unknown-linux-musl
 target/x86_64-unknown-linux-musl/release/ceph-memtop            # the terminal UI
 ceph-memtop --once                                              # one text snapshot
 ceph-memtop --once --json | jq .                                # one structured snapshot
-ceph-memtop --check                                             # verify the identities, exit 1 on failure
 ceph-memtop --record fixtures/myhost --interval 1               # record samples to replay later
-ceph-memtop --replay fixtures/myhost --check                    # test without a cluster
+ceph-memtop --replay fixtures/myhost --json                     # replay without a cluster, one JSON line per sample
 ```
 
 Discovery needs no configuration on a host with daemons under `/var/run/ceph` (plain or per
@@ -66,7 +65,7 @@ non_heap           = rss - heap_actual
 
 The **match** line checks the two sides against each other: rss = mempool_total + untracked +
 allocator_overhead + non_heap, and the mempool rows equal the dump's total (hard: a failure is a
-problem and fails `--check`); the tuner's mapped bytes equal tcmalloc's actual within 10 % (the
+problem and fails the sample's checks); the tuner's mapped bytes equal tcmalloc's actual within 10 % (the
 tuner samples on its own timer), the configured target equals the tuner's, and a dedicated cgroup
 charges at least the anon memory (soft: a difference is explained). A derived figure that comes out negative is `n/a` and the match says
 which input is off, e.g. heap pages held but not resident.
@@ -74,8 +73,13 @@ which input is off, e.g. heap pages held but not resident.
 Rows marked `?` are residuals, `ref` rows are not summed. Without tcmalloc the heap rows merge
 into "heap, not in any mempool, plus allocator free lists" from the priority cache's
 `mapped_bytes`; without that, into "anon, unattributed". A derived value that comes out negative
-is shown as `n/a` with the suspect source named; the level then does not reconcile and `--check`
-says so.
+is shown as `n/a` with the suspect source named; the level then does not reconcile and the checks
+say so.
+
+Every sample is checked: node rows = MemTotal, each readable daemon's rows = its RSS, the hard
+cross-checks, and the residuals within `--tolerance` (default 60 %). The node summary ends with
+the verdict, the terminal UI flags a failure in its title, JSON carries `checks` with the reasons,
+and in `--once`, `--plain`, `--json` and replay the exit status is 1 when any sample failed.
 
 The mempool undercounts the pg log (about 785 bytes per entry and 178 per dup are real against
 552 and 104 counted), so an OSD under write load keeps a sizeable "heap, not in any mempool"
@@ -129,7 +133,7 @@ without tcmalloc, MDS and RGW daemons. `--record` on such a host produces one.
 random write, 4K random read and 1M sequential read with fio while ceph-memtop records one sample
 per second, reads /proc, the cgroup and the admin sockets itself twice per workload, compares those
 readings with the sample memtop recorded at that second, and replays every recording through
-`--check`. On the c28 vstart (mon, mgr, four OSDs, main 21.3.0, 2026-10-28): 224 comparisons, the
+the checks. On the c28 vstart (mon, mgr, four OSDs, main 21.3.0, 2026-10-28): 224 comparisons, the
 worst difference 2.7 % (reads a second apart under write load, 0.4 % otherwise), 120 samples
 checked, none failed. The pg log grew from 7 to 17 MiB per OSD under random writes, the data cache
 from 0 to 290 MiB under random reads, and RSS followed, with both kinds of peak tracking it.

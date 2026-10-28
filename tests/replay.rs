@@ -1,5 +1,6 @@
-//! Black-box tests through the binary on recorded fixtures: the identities hold on every sample,
-//! replay is deterministic, peaks come from the samples and not from the parts, restarts reset.
+//! Black-box tests through the binary on recorded fixtures: every sample passes its checks,
+//! replay is deterministic, peaks come from the samples and not from the parts, restarts reset,
+//! a failed check fails the run.
 
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -18,7 +19,8 @@ fn json_lines(args: &[&str]) -> Vec<serde_json::Value> {
     let out = bin().args(args).output().expect("run");
     assert!(
         out.status.success(),
-        "stderr: {}",
+        "{:?}: {}",
+        args,
         String::from_utf8_lossy(&out.stderr)
     );
     String::from_utf8_lossy(&out.stdout)
@@ -26,6 +28,20 @@ fn json_lines(args: &[&str]) -> Vec<serde_json::Value> {
         .filter(|l| !l.is_empty())
         .map(|l| serde_json::from_str(l).expect("json line"))
         .collect()
+}
+
+/// Replay with these arguments; every sample must carry a passing verdict and the run exit 0.
+fn all_samples_pass(args: &[&str]) -> Vec<serde_json::Value> {
+    let views = json_lines(args);
+    assert!(!views.is_empty());
+    for v in &views {
+        assert_eq!(
+            v["checks"]["ok"], true,
+            "sample {}: {}",
+            v["seq"], v["checks"]["failures"]
+        );
+    }
+    views
 }
 
 fn load_fixture(name: &str) -> Vec<serde_json::Value> {
@@ -51,23 +67,47 @@ fn daemon<'a>(v: &'a serde_json::Value, name: &str) -> &'a serde_json::Value {
         .unwrap_or_else(|| panic!("no {}", name))
 }
 
+fn write_fixture(dir: &Path, samples: &[serde_json::Value]) {
+    std::fs::create_dir_all(dir).unwrap();
+    for (i, s) in samples.iter().enumerate() {
+        std::fs::write(
+            dir.join(format!("sample-{:06}.json", i)),
+            serde_json::to_vec(s).unwrap(),
+        )
+        .unwrap();
+    }
+}
+
+fn tmp(name: &str) -> PathBuf {
+    let d = std::env::temp_dir().join(format!("memtop-test-{}-{}", name, std::process::id()));
+    let _ = std::fs::remove_dir_all(&d);
+    d
+}
+
+fn set_osd0_proc(s: &mut serde_json::Value, f: impl Fn(&mut serde_json::Value)) {
+    for p in s["procs"].as_array_mut().unwrap() {
+        if p["comm"] == "ceph-osd"
+            && p["cmdline"]
+                .as_array()
+                .unwrap()
+                .windows(2)
+                .any(|w| w[0] == "-i" && w[1] == "0")
+        {
+            f(p);
+        }
+    }
+}
+
 #[test]
-fn identities_hold_on_every_recorded_sample() {
+fn every_recorded_sample_passes_its_checks() {
     for fx in ["vstart-idle", "vstart-write"] {
-        let out = bin()
-            .args([
-                "--replay",
-                fixtures(fx).to_str().unwrap(),
-                "--check",
-                "--tolerance",
-                "100",
-            ])
-            .output()
-            .unwrap();
-        let text = String::from_utf8_lossy(&out.stdout);
-        assert!(out.status.success(), "{}: {}", fx, text);
-        assert!(text.contains(", 0 failed"), "{}: {}", fx, text);
-        assert!(!text.contains("FAIL"), "{}: {}", fx, text);
+        all_samples_pass(&[
+            "--replay",
+            fixtures(fx).to_str().unwrap(),
+            "--json",
+            "--tolerance",
+            "100",
+        ]);
     }
 }
 
@@ -131,37 +171,30 @@ fn replay_is_deterministic_and_the_peak_is_the_sample_maximum() {
     assert!(pg["track"]["peak"]["value"].as_u64().unwrap() > 0);
     // kernel peaks are reported as such, with no time when they predate the tool
     assert!(d["rss_kernel_peak"]["value"].as_u64().unwrap() >= v);
-}
-
-fn write_fixture(dir: &Path, samples: &[serde_json::Value]) {
-    std::fs::create_dir_all(dir).unwrap();
-    for (i, s) in samples.iter().enumerate() {
-        std::fs::write(
-            dir.join(format!("sample-{:06}.json", i)),
-            serde_json::to_vec(s).unwrap(),
-        )
-        .unwrap();
-    }
-}
-
-fn tmp(name: &str) -> PathBuf {
-    let d = std::env::temp_dir().join(format!("memtop-test-{}-{}", name, std::process::id()));
-    let _ = std::fs::remove_dir_all(&d);
-    d
-}
-
-fn set_osd0_proc(s: &mut serde_json::Value, f: impl Fn(&mut serde_json::Value)) {
-    for p in s["procs"].as_array_mut().unwrap() {
-        if p["comm"] == "ceph-osd"
-            && p["cmdline"]
-                .as_array()
-                .unwrap()
-                .windows(2)
-                .any(|w| w[0] == "-i" && w[1] == "0")
-        {
-            f(p);
-        }
-    }
+    // both sides and their checks travel with the sample
+    let acc = &d["account"];
+    assert_eq!(acc["kernel"]["rss"].as_u64(), d["rss"]["cur"].as_u64());
+    let ceph = &acc["ceph"];
+    let (m, u, o, n) = (
+        ceph["mempool_total"].as_u64().unwrap(),
+        ceph["untracked"].as_u64().unwrap(),
+        ceph["allocator_overhead"].as_u64().unwrap(),
+        ceph["non_heap"].as_u64().unwrap(),
+    );
+    assert_eq!(
+        m + u + o + n,
+        d["rss"]["cur"].as_u64().unwrap(),
+        "rss = mempool_total + untracked + allocator_overhead + non_heap"
+    );
+    assert!(
+        acc["matches"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .all(|x| x["ok"] == true || x["hard"] == false),
+        "{}",
+        acc["matches"]
+    );
 }
 
 #[test]
@@ -184,10 +217,19 @@ fn a_restart_clears_peaks_and_rates_and_is_announced() {
     seq.push(s2);
     let dir = tmp("restart");
     write_fixture(&dir, &seq);
-    let out = json_lines(&["--replay", dir.to_str().unwrap(), "--json"]);
-    let before = daemon(&out[1], "osd.0");
+    let out = bin()
+        .args(["--replay", dir.to_str().unwrap(), "--json"])
+        .output()
+        .unwrap();
+    let views: Vec<serde_json::Value> = String::from_utf8_lossy(&out.stdout)
+        .lines()
+        .filter(|l| !l.is_empty())
+        .map(|l| serde_json::from_str(l).unwrap())
+        .collect();
+    assert_eq!(views.len(), 3);
+    let before = daemon(&views[1], "osd.0");
     assert_eq!(before["rss"]["peak"]["value"].as_u64(), Some(900u64 << 20));
-    let after = daemon(&out[2], "osd.0");
+    let after = daemon(&views[2], "osd.0");
     assert_eq!(
         after["rss"]["peak"]["value"].as_u64(),
         Some(50u64 << 20),
@@ -195,16 +237,16 @@ fn a_restart_clears_peaks_and_rates_and_is_announced() {
     );
     assert_eq!(
         after["rss"]["peak"]["at_ms"].as_u64(),
-        out[2]["wall_ms"].as_u64()
+        views[2]["wall_ms"].as_u64()
     );
     assert!(after["rss"]["rate"].is_null(), "no rate across a restart");
-    assert_eq!(after["restarted_at"].as_u64(), out[2]["wall_ms"].as_u64());
+    assert_eq!(after["restarted_at"].as_u64(), views[2]["wall_ms"].as_u64());
     assert_eq!(
         after["rss_kernel_peak"]["value"].as_u64(),
         Some(55u64 << 20)
     );
     // the node row for the daemon is reset as well
-    let row = out[2]["node"]["rows"]
+    let row = views[2]["node"]["rows"]
         .as_array()
         .unwrap()
         .iter()
@@ -224,23 +266,13 @@ fn a_build_without_heap_stats_still_adds_up() {
     }
     let dir = tmp("noheap");
     write_fixture(&dir, &seq);
-    let out = bin()
-        .args([
-            "--replay",
-            dir.to_str().unwrap(),
-            "--check",
-            "--tolerance",
-            "100",
-        ])
-        .output()
-        .unwrap();
-    let text = String::from_utf8_lossy(&out.stdout);
-    assert!(
-        out.status.success() && text.contains(", 0 failed"),
-        "{}",
-        text
-    );
-    let v = json_lines(&["--replay", dir.to_str().unwrap(), "--json", "--once"]);
+    let v = all_samples_pass(&[
+        "--replay",
+        dir.to_str().unwrap(),
+        "--json",
+        "--tolerance",
+        "100",
+    ]);
     let d = daemon(&v[0], "osd.0");
     let ids: Vec<&str> = d["rows"]
         .as_array()
@@ -252,6 +284,10 @@ fn a_build_without_heap_stats_still_adds_up() {
         ids.contains(&"heap:rest") && !ids.contains(&"heap:free"),
         "{:?}",
         ids
+    );
+    assert!(
+        d["account"]["ceph"]["heap_in_use"].is_null(),
+        "no heap stats: unknown, not zero"
     );
     let _ = std::fs::remove_dir_all(&dir);
 }
@@ -266,8 +302,16 @@ fn a_degraded_sample_is_shown_but_feeds_neither_peaks_nor_rates() {
     seq[1]["spread_ms"] = serde_json::json!(60_000);
     let dir = tmp("degraded");
     write_fixture(&dir, &seq);
-    let out = json_lines(&["--replay", dir.to_str().unwrap(), "--json"]);
-    let d = daemon(&out[1], "osd.0");
+    let out = bin()
+        .args(["--replay", dir.to_str().unwrap(), "--json"])
+        .output()
+        .unwrap();
+    let views: Vec<serde_json::Value> = String::from_utf8_lossy(&out.stdout)
+        .lines()
+        .filter(|l| !l.is_empty())
+        .map(|l| serde_json::from_str(l).unwrap())
+        .collect();
+    let d = daemon(&views[1], "osd.0");
     assert_eq!(d["rss"]["cur"].as_u64(), Some(900u64 << 20), "shown");
     assert!(
         d["rss"]["peak"]["value"].as_u64().unwrap() < 900u64 << 20,
@@ -275,12 +319,12 @@ fn a_degraded_sample_is_shown_but_feeds_neither_peaks_nor_rates() {
     );
     assert!(d["rss"]["rate"].is_null());
     assert_eq!(d["degraded"], true);
-    assert_eq!(out[1]["node"]["degraded"], true);
+    assert_eq!(views[1]["node"]["degraded"], true);
     let _ = std::fs::remove_dir_all(&dir);
 }
 
 #[test]
-fn unknown_values_are_blank_not_zero() {
+fn unknown_values_are_blank_and_unreadable_daemons_are_left_out_of_the_verdict() {
     let mut seq = load_fixture("vstart-idle");
     for s in &mut seq {
         for d in s["daemons"].as_array_mut().unwrap() {
@@ -292,7 +336,13 @@ fn unknown_values_are_blank_not_zero() {
     }
     let dir = tmp("unknown");
     write_fixture(&dir, &seq);
-    let out = json_lines(&["--replay", dir.to_str().unwrap(), "--json", "--once"]);
+    let out = all_samples_pass(&[
+        "--replay",
+        dir.to_str().unwrap(),
+        "--json",
+        "--tolerance",
+        "100",
+    ]);
     let d = daemon(&out[0], "osd.1");
     let pg = d["rows"]
         .as_array()
@@ -305,22 +355,54 @@ fn unknown_values_are_blank_not_zero() {
         pg["track"]["peak"].is_null(),
         "a peak with no samples behind it is blank"
     );
-    assert!(d["errors"].as_array().unwrap().len() == 1);
-    // the check reports the daemon as unreadable instead of failing on it
+    assert_eq!(d["errors"].as_array().unwrap().len(), 1);
+    assert!(
+        out[0]["checks"]["unchecked"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|x| x == "osd.1"),
+        "{}",
+        out[0]["checks"]
+    );
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn a_failed_check_is_reported_and_fails_the_run() {
+    let mut seq = load_fixture("vstart-idle");
+    // a meminfo without AnonPages: the node identity cannot close
+    seq[0]["meminfo"]
+        .as_object_mut()
+        .unwrap()
+        .remove("AnonPages");
+    let dir = tmp("failcheck");
+    write_fixture(&dir, &seq[..1]);
     let out = bin()
-        .args([
-            "--replay",
-            dir.to_str().unwrap(),
-            "--check",
-            "--tolerance",
-            "100",
-        ])
+        .args(["--replay", dir.to_str().unwrap(), "--json", "--once"])
+        .output()
+        .unwrap();
+    assert!(!out.status.success(), "a failed check must fail the run");
+    let v: serde_json::Value =
+        serde_json::from_str(String::from_utf8_lossy(&out.stdout).lines().next().unwrap()).unwrap();
+    assert_eq!(v["checks"]["ok"], false);
+    assert!(
+        v["checks"]["failures"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|f| f.as_str().unwrap().starts_with("node:")),
+        "{}",
+        v["checks"]
+    );
+    let plain = bin()
+        .args(["--replay", dir.to_str().unwrap(), "--once"])
         .output()
         .unwrap();
     assert!(
-        out.status.success(),
+        String::from_utf8_lossy(&plain.stdout).contains("checks   FAILED"),
         "{}",
-        String::from_utf8_lossy(&out.stdout)
+        String::from_utf8_lossy(&plain.stdout)
     );
     let _ = std::fs::remove_dir_all(&dir);
 }

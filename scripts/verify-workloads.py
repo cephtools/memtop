@@ -6,7 +6,7 @@
 For idle, 4K random write, 4K random read and 1M sequential read (fio on --dev), ceph-memtop records
 one sample per second; twice per workload this script reads /proc, the cgroup and the admin
 sockets itself and compares them with the sample memtop recorded at that second. Every recording
-is then replayed through --check. Run as a user that can read the sockets and /proc/PID/fd.
+is then replayed, and every sample must pass its checks. Run as a user that can read the sockets and /proc/PID/fd.
 """
 import argparse, glob, json, os, signal, socket, struct, subprocess, sys, time
 
@@ -135,10 +135,12 @@ def main():
         for r in (bad if bad else rows[:7]):
             print(f"  {r[0]:6} {r[1]:14} {r[2]:>6}  {r[3]}")
         if len(rows) > 7 and not bad: print(f"  ... ({len(rows) - 7} more, all within 5%)")
-        chk = subprocess.run([args.bin, "--replay", out, "--check"], capture_output=True, text=True)
-        tail = chk.stdout.strip().splitlines()[-1] if chk.stdout.strip() else chk.stderr.strip()[-200:]
-        print(f"replay --check: {tail}" + ("" if chk.returncode == 0 else " (FAILED)"))
-        if chk.returncode != 0 or bad: failed += 1
+        nbad = [v["seq"] for v in views if not v["checks"]["ok"]]
+        print(f"replay: {len(views)} samples, {len(nbad)} failed their checks" + ("" if not nbad else f" ({', '.join(str(x) for x in nbad[:5])})"))
+        for v in views:
+            if not v["checks"]["ok"]:
+                print("  sample", v["seq"], ":", "; ".join(v["checks"]["failures"][:3])); break
+        if nbad or bad: failed += 1
         for osd in sorted(views[-1]["daemons"][i]["account"]["name"] for i in range(len(views[-1]["daemons"])) if views[-1]["daemons"][i]["account"]["kind"] == "osd"):
             print("  " + behaviour(views, osd))
         print()

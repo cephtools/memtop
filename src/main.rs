@@ -51,10 +51,7 @@ struct Cli {
     /// Text tables every tick instead of the terminal UI.
     #[arg(long)]
     plain: bool,
-    /// Verify the two identities (node rows = MemTotal, daemon rows = RSS) and the residuals; exit 1 on failure.
-    #[arg(long)]
-    check: bool,
-    /// Largest acceptable residual for --check, percent of the level's total. A daemon's residual is
+    /// Largest acceptable residual, percent of the level's total; above it a sample fails its checks. A daemon's residual is
     /// what no mempool, cache or allocator counter claims; 30-60% is normal for an OSD with RocksDB
     /// statistics off, or for the mgr's Python.
     #[arg(long, default_value_t = 60)]
@@ -139,65 +136,6 @@ fn start_sampler(
     rx
 }
 
-fn check_view(v: &state::View, tol: u64) -> Vec<String> {
-    let mut bad = Vec::new();
-    let n = &v.node;
-    let sum: Option<i128> = n
-        .rows
-        .iter()
-        .filter_map(|r| r.row.contribution())
-        .fold(Some(0i128), |a, x| a.map(|y| y + x));
-    match (sum, n.total) {
-        (Some(s), Some(t)) if s == t as i128 => {}
-        (Some(s), Some(t)) => bad.push(format!("node: rows sum {} != MemTotal {}", s, t)),
-        _ => bad.push("node: identity not closable (missing input)".into()),
-    }
-    match n.residual_pct {
-        Some(p) if p > tol => bad.push(format!("node: residual {}% > {}%", p, tol)),
-        None => bad.push("node: residual unknown".into()),
-        _ => {}
-    }
-    for p in &n.problems {
-        bad.push(format!("node: {}", p));
-    }
-    for d in &v.daemons {
-        let a = &d.account;
-        let Some(rss) = a.rss else {
-            continue;
-        };
-        if d.socket.is_none() || !d.errors.is_empty() {
-            continue; // unreadable daemons are reported, not checked
-        }
-        let complete = d
-            .rows
-            .iter()
-            .filter(|r| !r.row.reference && !r.row.optional)
-            .all(|r| r.row.value.is_some() || r.row.signed.is_some());
-        let sum: Option<i128> = d
-            .rows
-            .iter()
-            .filter_map(|r| r.row.contribution())
-            .fold(Some(0i128), |a, x| a.map(|y| y + x));
-        match sum {
-            Some(s) if complete && s == rss as i128 => {}
-            Some(s) if complete => bad.push(format!("{}: rows sum {} != rss {}", a.name, s, rss)),
-            _ => bad.push(format!(
-                "{}: identity not closable: {:?}",
-                a.name, a.problems
-            )),
-        }
-        match a.residual_pct {
-            Some(p) if p > tol => bad.push(format!("{}: residual {}% > {}%", a.name, p, tol)),
-            None => bad.push(format!("{}: residual unknown", a.name)),
-            _ => {}
-        }
-        for p in &a.problems {
-            bad.push(format!("{}: {}", a.name, p));
-        }
-    }
-    bad
-}
-
 fn plain_text(v: &state::View, o: render::Opts) -> String {
     let mut s = String::new();
     for l in render::node_summary(v) {
@@ -231,7 +169,7 @@ fn main() {
     ] {
         let _ = signal_hook::flag::register(sig, stop.clone());
     }
-    let tui = !(cli.once || cli.json || cli.plain || cli.check);
+    let tui = !(cli.once || cli.json || cli.plain);
     {
         let tui = tui;
         let prev = std::panic::take_hook();
@@ -304,22 +242,19 @@ fn main() {
             Source::Live(start_sampler(c, interval, stop.clone()))
         }
     };
-    let mut st = state::State::new(max_spread);
+    let mut st = state::State::new(max_spread, cli.tolerance);
     let opts = render::Opts {
         peaks: !cli.no_peaks,
         raw: cli.raw,
     };
-    let mut failures = 0usize;
+    let mut failed = 0usize;
     let mut checked = 0usize;
     if !tui {
         let replaying = cli.replay.is_some();
-        // --check on a live host is one sample; on a fixture it checks every sample
-        let once = cli.once || (cli.check && !replaying);
         loop {
             if stop.load(Ordering::SeqCst) {
                 break;
             }
-            let t0 = Instant::now();
             let Some(s) = source.next() else {
                 break;
             };
@@ -329,50 +264,26 @@ fn main() {
                 }
             }
             let v = st.ingest(&s);
-            if cli.check {
-                checked += 1;
-                let bad = check_view(&v, cli.tolerance);
-                if bad.is_empty() {
-                    println!(
-                        "sample {}: node rows = MemTotal, daemon rows = RSS, residual node {}%{}",
-                        v.seq,
-                        v.node.residual_pct.unwrap_or(0),
-                        v.daemons
-                            .iter()
-                            .filter(|d| d.account.rss.is_some())
-                            .map(|d| format!(
-                                ", {} {}%",
-                                d.account.name,
-                                d.account
-                                    .residual_pct
-                                    .map(|p| p.to_string())
-                                    .unwrap_or_else(|| "?".into())
-                            ))
-                            .collect::<String>()
-                    );
-                } else {
-                    failures += 1;
-                    println!("sample {}: FAIL", v.seq);
-                    for b in bad {
-                        println!("  {}", b);
-                    }
-                }
-            } else if cli.json {
+            checked += 1;
+            if !v.checks.ok {
+                failed += 1;
+            }
+            if cli.json {
                 println!("{}", serde_json::to_string(&v).unwrap());
             } else {
                 print!("{}", plain_text(&v, opts));
             }
-            if once {
+            if cli.once {
                 break;
             }
-            let _ = t0;
+            let _ = replaying;
         }
         for e in kvstats::restore_all() {
             eprintln!("restore: {}", e);
         }
-        if cli.check {
-            println!("{} samples checked, {} failed", checked, failures);
-            std::process::exit(if failures > 0 { 1 } else { 0 });
+        if failed > 0 {
+            eprintln!("{} of {} samples failed their checks", failed, checked);
+            std::process::exit(1);
         }
         return;
     }
@@ -466,27 +377,30 @@ fn main() {
                         st.reset_all_peaks();
                         u.message = "all observed peaks reset".into();
                     }
-                    (KeyCode::Char('r'), _) => match (&u.screen, &view) {
-                        (ui::Screen::Node, Some(v)) => {
-                            if let Some(d) = v.daemons.get(u.cursor) {
-                                st.reset_peak(Some(&d.account.name), "rss");
-                                st.reset_peak(None, &format!("anon:{}", d.account.name));
-                                u.message = format!("{}: observed peaks reset", d.account.name);
+                    (KeyCode::Char('r'), _) => {
+                        match (&u.screen, &view) {
+                            (ui::Screen::Node, Some(v)) => {
+                                if let Some(d) = v.daemons.get(u.cursor) {
+                                    st.reset_peak(Some(&d.account.name), "rss");
+                                    st.reset_peak(None, &format!("anon:{}", d.account.name));
+                                    u.message = format!("{}: observed peaks reset", d.account.name);
+                                }
                             }
-                        }
-                        (ui::Screen::Daemon(n), Some(v)) => {
-                            if let Some(r) = v
-                                .daemons
-                                .iter()
-                                .find(|d| &d.account.name == n)
-                                .and_then(|d| d.rows.get(u.cursor))
-                            {
-                                st.reset_peak(Some(n), &r.row.id);
-                                u.message = format!("{}: peak reset", r.row.label.trim());
+                            (ui::Screen::Daemon(n), Some(v)) => {
+                                if let Some(r) = v
+                                    .daemons
+                                    .iter()
+                                    .find(|d| &d.account.name == n)
+                                    .and_then(|d| d.rows.get(u.cursor))
+                                {
+                                    st.reset_peak(Some(n), &r.row.id);
+                                    u.message = format!("{}: peak reset", r.row.label.trim());
+                                }
                             }
+                            _ => {}
                         }
-                        _ => {}
-                    },
+                        view = st.refresh();
+                    }
                     (KeyCode::Char('g'), _) => {
                         if let (ui::Screen::Daemon(n), Some(v)) = (&u.screen, &view) {
                             if let Some(d) = v.daemons.iter().find(|d| &d.account.name == n) {

@@ -46,8 +46,18 @@ pub struct DaemonView {
     pub spread_ms: u64,
 }
 
+/// The verdict on one sample: both identities, the hard cross-checks and the residual bound.
+#[derive(Clone, Debug, Default, Serialize)]
+pub struct Checks {
+    pub ok: bool,
+    pub failures: Vec<String>,
+    /// Daemons left out of the verdict because they could not be read.
+    pub unchecked: Vec<String>,
+}
+
 #[derive(Clone, Debug, Default, Serialize)]
 pub struct View {
+    pub checks: Checks,
     pub seq: u64,
     pub wall_ms: u64,
     pub mono_ms: u64,
@@ -75,42 +85,109 @@ pub struct State {
     node: BTreeMap<String, Track>,
     daemons: BTreeMap<String, DaemonState>,
     last_mono: Option<u64>,
+    /// The last sample and its measured interval, so the view can be rebuilt after a reset.
+    last: Option<(RawSample, Option<u64>)>,
     /// Reads spread wider than this (ms) make a sample degraded.
     pub max_spread_ms: u64,
+    /// Largest acceptable residual, percent of the level's total.
+    pub tolerance_pct: u64,
+}
+
+/// Verify one view: node rows = MemTotal, each readable daemon's rows = its RSS, the hard
+/// cross-checks, and the residuals within tolerance.
+pub fn verify(v: &View, tol: u64) -> Checks {
+    let mut c = Checks {
+        ok: true,
+        ..Default::default()
+    };
+    let n = &v.node;
+    let sum: Option<i128> = n
+        .rows
+        .iter()
+        .filter_map(|r| r.row.contribution())
+        .fold(Some(0i128), |a, x| a.map(|y| y + x));
+    match (sum, n.total) {
+        (Some(s), Some(t)) if s == t as i128 => {}
+        (Some(s), Some(t)) => c
+            .failures
+            .push(format!("node: rows sum {} != MemTotal {}", s, t)),
+        _ => c
+            .failures
+            .push("node: identity not closable (missing input)".into()),
+    }
+    match n.residual_pct {
+        Some(p) if p > tol => c.failures.push(format!("node: residual {}% > {}%", p, tol)),
+        None => c.failures.push("node: residual unknown".into()),
+        _ => {}
+    }
+    for p in &n.problems {
+        c.failures.push(format!("node: {}", p));
+    }
+    for d in &v.daemons {
+        let a = &d.account;
+        if d.socket.is_none() || !d.errors.is_empty() || a.rss.is_none() {
+            c.unchecked.push(a.name.clone());
+            continue;
+        }
+        let rss = a.rss.unwrap();
+        let complete = d
+            .rows
+            .iter()
+            .filter(|r| !r.row.reference && !r.row.optional)
+            .all(|r| r.row.value.is_some() || r.row.signed.is_some());
+        let sum: Option<i128> = d
+            .rows
+            .iter()
+            .filter_map(|r| r.row.contribution())
+            .fold(Some(0i128), |a, x| a.map(|y| y + x));
+        match sum {
+            Some(s) if complete && s == rss as i128 => {}
+            Some(s) if complete => c
+                .failures
+                .push(format!("{}: rows sum {} != rss {}", a.name, s, rss)),
+            _ => c
+                .failures
+                .push(format!("{}: identity not closable", a.name)),
+        }
+        match a.residual_pct {
+            Some(p) if p > tol => c
+                .failures
+                .push(format!("{}: residual {}% > {}%", a.name, p, tol)),
+            None => c.failures.push(format!("{}: residual unknown", a.name)),
+            _ => {}
+        }
+        for p in &a.problems {
+            c.failures.push(format!("{}: {}", a.name, p));
+        }
+    }
+    c.ok = c.failures.is_empty();
+    c
 }
 
 impl State {
-    pub fn new(max_spread_ms: u64) -> State {
+    pub fn new(max_spread_ms: u64, tolerance_pct: u64) -> State {
         State {
             max_spread_ms,
+            tolerance_pct,
             ..Default::default()
         }
     }
 
+    /// Feed one sample: update every track, then build the view from the sample and the tracks.
     pub fn ingest(&mut self, s: &RawSample) -> View {
         let sampling_ms = self.last_mono.map(|m| s.mono_ms.saturating_sub(m));
         self.last_mono = Some(s.mono_ms);
         let node_good = s.spread_ms <= self.max_spread_ms;
-        let na: NodeAccount = node_account(s);
-        let mut node = NodeView {
-            total: na.total,
-            residual_pct: na.residual_pct,
-            problems: na.problems.clone(),
-            degraded: !node_good,
-            rows: Vec::new(),
-        };
+        let na = node_account(s);
         let mut seen = std::collections::HashSet::new();
         for r in &na.rows {
-            let t = self.node.entry(r.id.clone()).or_default();
-            t.update(r.value, s.mono_ms, s.wall_ms, node_good);
+            self.node
+                .entry(r.id.clone())
+                .or_default()
+                .update(r.value, s.mono_ms, s.wall_ms, node_good);
             seen.insert(r.id.clone());
-            node.rows.push(TrackedRow {
-                row: r.clone(),
-                track: t.clone(),
-            });
         }
         self.node.retain(|k, _| seen.contains(k));
-        let mut daemons = Vec::new();
         let mut names = std::collections::HashSet::new();
         for d in &s.daemons {
             names.insert(d.name.clone());
@@ -138,16 +215,13 @@ impl State {
             st.starttime = p.map_or(0, |p| p.starttime);
             let good = !d.stale && d.spread_ms <= self.max_spread_ms && node_good;
             let acc = daemon_account(d, p, s);
-            let mut rows = Vec::new();
             let mut seen = std::collections::HashSet::new();
             for r in &acc.rows {
-                let t = st.rows.entry(r.id.clone()).or_default();
-                t.update(r.value, s.mono_ms, s.wall_ms, good);
+                st.rows
+                    .entry(r.id.clone())
+                    .or_default()
+                    .update(r.value, s.mono_ms, s.wall_ms, good);
                 seen.insert(r.id.clone());
-                rows.push(TrackedRow {
-                    row: r.clone(),
-                    track: t.clone(),
-                });
             }
             st.rows.retain(|k, _| seen.contains(k));
             st.rss.update(acc.rss, s.mono_ms, s.wall_ms, node_good);
@@ -160,39 +234,88 @@ impl State {
             );
             st.cg_auth
                 .update(acc.cgroup.as_ref().and_then(|c| c.peak), s.wall_ms);
+        }
+        self.daemons.retain(|k, _| names.contains(k));
+        self.last = Some((s.clone(), sampling_ms));
+        self.build(s, sampling_ms)
+    }
+
+    /// The view for the last sample with the tracks as they are now: after a peak reset, the
+    /// summary and the tables show it at once instead of at the next sample.
+    pub fn refresh(&self) -> Option<View> {
+        self.last.as_ref().map(|(s, sm)| self.build(s, *sm))
+    }
+
+    fn build(&self, s: &RawSample, sampling_ms: Option<u64>) -> View {
+        let node_good = s.spread_ms <= self.max_spread_ms;
+        let na: NodeAccount = node_account(s);
+        let node = NodeView {
+            total: na.total,
+            residual_pct: na.residual_pct,
+            problems: na.problems.clone(),
+            degraded: !node_good,
+            rows: na
+                .rows
+                .iter()
+                .map(|r| TrackedRow {
+                    row: r.clone(),
+                    track: self.node.get(&r.id).cloned().unwrap_or_default(),
+                })
+                .collect(),
+        };
+        let mut daemons = Vec::new();
+        for d in &s.daemons {
+            let p = d.pid.and_then(|pid| s.procs.iter().find(|p| p.pid == pid));
+            let st = self.daemons.get(&d.name);
+            let good = !d.stale && d.spread_ms <= self.max_spread_ms && node_good;
+            let acc: DaemonAccount = daemon_account(d, p, s);
+            let rows = acc
+                .rows
+                .iter()
+                .map(|r| TrackedRow {
+                    row: r.clone(),
+                    track: st
+                        .and_then(|st| st.rows.get(&r.id).cloned())
+                        .unwrap_or_default(),
+                })
+                .collect();
             daemons.push(DaemonView {
                 socket: d.socket.clone(),
                 version: d.version.clone(),
                 fsid: d.fsid.clone(),
-                rss: st.rss.clone(),
-                rss_kernel_peak: st.rss_auth.clone(),
-                cgroup: st.cg.clone(),
-                cgroup_kernel_peak: st.cg_auth.clone(),
+                rss: st.map(|st| st.rss.clone()).unwrap_or_default(),
+                rss_kernel_peak: st.map(|st| st.rss_auth.clone()).unwrap_or_default(),
+                cgroup: st.map(|st| st.cg.clone()).unwrap_or_default(),
+                cgroup_kernel_peak: st.map(|st| st.cg_auth.clone()).unwrap_or_default(),
                 errors: d.errors.clone(),
                 conf: d.conf.clone(),
                 bindir: d.bindir.clone(),
                 stale: d.stale,
                 degraded: !good,
-                restarted_at: if st.restart_ticks_left > 0 {
-                    st.restarted_at
-                } else {
-                    None
-                },
+                restarted_at: st.and_then(|st| {
+                    if st.restart_ticks_left > 0 {
+                        st.restarted_at
+                    } else {
+                        None
+                    }
+                }),
                 spread_ms: d.spread_ms,
                 account: acc,
                 rows,
             });
         }
-        self.daemons.retain(|k, _| names.contains(k));
         daemons.sort_by(|a, b| a.account.name.cmp(&b.account.name));
-        View {
+        let mut v = View {
+            checks: Checks::default(),
             seq: s.seq,
             wall_ms: s.wall_ms,
             mono_ms: s.mono_ms,
             sampling_ms,
             node,
             daemons,
-        }
+        };
+        v.checks = verify(&v, self.tolerance_pct);
+        v
     }
 
     /// Clear every observed peak (kernel peaks are not ours to clear).
@@ -289,7 +412,7 @@ mod tests {
 
     #[test]
     fn peaks_follow_rows_and_restarts_clear_them() {
-        let mut st = State::new(500);
+        let mut st = State::new(500, 100);
         let v1 = st.ingest(&sample(0, 500, 7, 100, 20));
         assert_eq!(v1.sampling_ms, None);
         let v2 = st.ingest(&sample(1, 900, 7, 100, 60));
@@ -314,7 +437,7 @@ mod tests {
     #[test]
     fn totals_do_not_sum_peaks() {
         // two rows peaking at different moments: the total's peak is its own maximum, below the sum of the row peaks
-        let mut st = State::new(500);
+        let mut st = State::new(500, 100);
         st.ingest(&sample(0, 500, 7, 100, 100));
         st.ingest(&sample(1, 500, 7, 100, 10));
         let v = st.ingest(&sample(2, 200, 7, 100, 10));
@@ -335,7 +458,7 @@ mod tests {
 
     #[test]
     fn reset_clears_only_observed_peaks() {
-        let mut st = State::new(500);
+        let mut st = State::new(500, 100);
         st.ingest(&sample(0, 500, 7, 100, 100));
         st.reset_all_peaks();
         let v = st.ingest(&sample(1, 100, 7, 100, 5));
@@ -357,8 +480,25 @@ mod tests {
     }
 
     #[test]
+    fn a_refresh_shows_a_reset_before_the_next_sample() {
+        let mut st = State::new(500, 100);
+        st.ingest(&sample(0, 500, 7, 100, 100));
+        let v = st.ingest(&sample(1, 100, 7, 100, 5));
+        assert_eq!(v.daemons[0].rss.peak.map(|p| p.0), Some(510));
+        st.reset_all_peaks();
+        let r = st.refresh().unwrap();
+        assert_eq!(
+            r.daemons[0].rss.peak, None,
+            "the summary and tables show the reset now"
+        );
+        assert_eq!(r.daemons[0].rss.cur, Some(110));
+        assert_eq!(r.sampling_ms, Some(2000));
+        assert!(r.checks.ok, "{:?}", r.checks.failures);
+    }
+
+    #[test]
     fn degraded_samples_are_shown_but_not_tracked() {
-        let mut st = State::new(500);
+        let mut st = State::new(500, 100);
         st.ingest(&sample(0, 500, 7, 100, 100));
         let mut s = sample(1, 900, 7, 100, 900);
         s.spread_ms = 5000;
