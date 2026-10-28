@@ -205,6 +205,11 @@ impl Collector {
                         .filter(|n| n.contains('.'))
                         .unwrap_or(stem);
                     d.kind = stem.split('.').next().unwrap_or("").to_string();
+                    // a client's socket file outlives its process (rados bench, the ceph CLI):
+                    // with nothing listening behind it, it is a leftover, not a daemon
+                    if d.kind == "client" && !inode_of.contains_key(path.as_str()) {
+                        continue;
+                    }
                     d.name = stem;
                     d.unreadable = Some(e);
                 }
@@ -443,6 +448,7 @@ impl Collector {
                     e.starts_with("heap stats:")
                         && (e.contains("unknown command")
                             || e.contains("not supported")
+                            || e.contains("Invalid argument")
                             || e.contains("tcmalloc"))
                 }) {
                     self.no_heap.insert(d.name.clone());
@@ -500,4 +506,46 @@ pub fn conf_from_cmdline(cmdline: &[String]) -> Option<String> {
         }
     }
     None
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn opts(dir: &Path) -> Options {
+        Options {
+            asok: vec![],
+            asok_dirs: vec![dir.to_string_lossy().into_owned()],
+            timeout: Duration::from_millis(50),
+            budget: Duration::from_millis(100),
+            kv_stats: false,
+            kv_enable: false,
+            heap: false,
+        }
+    }
+
+    #[test]
+    fn a_client_socket_file_with_no_listener_is_dropped_but_a_daemons_is_shown_unreadable() {
+        let dir = std::env::temp_dir().join(format!("memtop-discover-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("client.admin.354107.asok"), b"").unwrap();
+        std::fs::write(dir.join("osd.9.asok"), b"").unwrap();
+        let mut c = Collector::new(opts(&dir));
+        c.discover(&[], &[]);
+        let prefix = dir.canonicalize().unwrap().to_string_lossy().into_owned();
+        let here: Vec<&DaemonInfo> = c
+            .known
+            .iter()
+            .filter(|d| {
+                d.socket
+                    .as_deref()
+                    .map_or(false, |s| s.starts_with(&prefix))
+            })
+            .collect();
+        let names: Vec<String> = here.iter().map(|d| d.name.clone()).collect();
+        let unreadable = here.iter().all(|d| d.unreadable.is_some());
+        std::fs::remove_dir_all(&dir).unwrap();
+        assert_eq!(names, vec!["osd.9".to_string()]);
+        assert!(unreadable);
+    }
 }
