@@ -250,6 +250,7 @@ fn main() {
                     (interval.as_millis() as u64 * 3 / 4).clamp(300, cli.timeout.max(300) * 2),
                 ),
                 kv_stats: cli.enable_kv_stats,
+                kv_enable: false,
                 heap: !cli.no_heap,
             };
             let mut c = collect::Collector::new(opts);
@@ -264,12 +265,15 @@ fn main() {
                     .filter_map(|d| d.socket.clone().map(|s| (d.name.clone(), s)))
                     .collect();
                 let plan = kvstats::plan(&socks, Duration::from_millis(cli.timeout));
+                // the consent covers the run: an OSD that restarts or appears later gets the
+                // switches too, so the memtable rows do not go n/a silently
+                let mut ok = true;
                 if !plan.is_empty() {
-                    eprintln!("--enable-kv-stats would set, until exit:");
+                    eprintln!("--enable-kv-stats would set, until exit (and again on an OSD that restarts):");
                     for p in &plan {
                         eprintln!("  {}: {} = true (now {})", p.daemon, p.var, p.before);
                     }
-                    let ok = cli.yes || {
+                    ok = cli.yes || {
                         eprint!("proceed? [y/N] ");
                         let mut l = String::new();
                         std::io::stdin().read_line(&mut l).ok();
@@ -283,6 +287,7 @@ fn main() {
                         eprintln!("left as found; memtable rows will read n/a");
                     }
                 }
+                c.opts.kv_enable = ok;
             }
             Source::Live(start_sampler(c, interval, stop.clone()))
         }

@@ -516,6 +516,47 @@ pub struct DaemonAccount {
     pub problems: Vec<String>,
 }
 
+/// Why the kv-stats figures are unknown, from the same sample: the two switches are read every
+/// tick, and a failed read keeps its error.
+fn kv_why(d: &RawDaemon) -> String {
+    let off: Vec<&str> = ["rocksdb_perf", "rocksdb_collect_memory_stats"]
+        .into_iter()
+        .filter(|k| d.config.get(*k).map(|v| v != "true").unwrap_or(false))
+        .collect();
+    let err = d
+        .errors
+        .iter()
+        .find_map(|e| e.strip_prefix("kv stats:"))
+        .map(|e| {
+            e.trim()
+                .trim_start_matches("ERROR:")
+                .trim_start_matches("error:")
+                .trim()
+        });
+    let sits = "bytes sit in 'heap, not in any mempool'";
+    match (off.is_empty(), err) {
+        (false, Some(_)) => format!(
+            "n/a: {} off on this OSD (enable declined, or not yet re-set after a restart); {}",
+            off.join(" and "),
+            sits
+        ),
+        (false, None) => format!(
+            "n/a: {} off on this OSD, --enable-kv-stats sets them; {}",
+            off.join(" and "),
+            sits
+        ),
+        (true, Some(e)) => format!(
+            "n/a: dump_objectstore_kv_stats: {}; {}",
+            e.chars().take(70).collect::<String>(),
+            sits
+        ),
+        (true, None) if d.config.contains_key("rocksdb_perf") => {
+            format!("n/a: not read, --enable-kv-stats reads it; {}", sits)
+        }
+        (true, None) => format!("n/a: --enable-kv-stats reads it; {}", sits),
+    }
+}
+
 fn mempool_bytes(mp: &serde_json::Value) -> BTreeMap<String, u64> {
     let mut out = BTreeMap::new();
     if let Some(by) = mp.pointer("/mempool/by_pool").and_then(|v| v.as_object()) {
@@ -703,7 +744,7 @@ pub fn daemon_account(d: &RawDaemon, p: Option<&ProcInfo>, s: &RawSample) -> Dae
         )
         .optional();
         rows.push(if memtable.is_none() {
-            r.note("n/a: in 'heap, not in any mempool'; --enable-kv-stats reads it")
+            r.note(kv_why(d))
         } else {
             r.note("sharded families (O, L, P, M) are not reported: they sit in 'heap, not in any mempool'")
         });
@@ -715,7 +756,7 @@ pub fn daemon_account(d: &RawDaemon, p: Option<&ProcInfo>, s: &RawSample) -> Dae
         )
         .optional();
         rows.push(if sst_readers.is_none() {
-            r.note("n/a: in 'heap, not in any mempool'")
+            r.note("n/a: same reason as the memtables row")
         } else {
             r.note("other families not reported")
         });
@@ -1494,6 +1535,42 @@ mod tests {
             id.detail
         );
         assert_eq!(a4.ceph.non_heap, None);
+    }
+
+    #[test]
+    fn an_unknown_memtable_row_says_why() {
+        let (mut d, p, s) = osd_sample(true);
+        let note = |d: &RawDaemon| {
+            format!(
+                "{:?}",
+                daemon_account(d, Some(&p), &s)
+                    .rows
+                    .iter()
+                    .find(|r| r.id == "nocache:memtables")
+                    .unwrap()
+                    .note
+            )
+        };
+        d.config.insert("rocksdb_perf".into(), "false".into());
+        d.config
+            .insert("rocksdb_collect_memory_stats".into(), "true".into());
+        assert!(
+            note(&d).contains("rocksdb_perf off on this OSD, --enable-kv-stats sets them"),
+            "{}",
+            note(&d)
+        );
+        d.errors
+            .push("kv stats: ERROR: RocksDB perf is disabled, can't probe for stats.".into());
+        assert!(note(&d).contains("enable declined"), "{}", note(&d));
+        d.errors.clear();
+        d.config.insert("rocksdb_perf".into(), "true".into());
+        assert!(note(&d).contains("not read"), "{}", note(&d));
+        d.errors.push("kv stats: no reply within 2000 ms".into());
+        assert!(
+            note(&d).contains("dump_objectstore_kv_stats: no reply within 2000 ms"),
+            "{}",
+            note(&d)
+        );
     }
 
     #[test]

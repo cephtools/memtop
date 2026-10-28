@@ -21,6 +21,8 @@ pub struct Options {
     pub budget: Duration,
     /// Read dump_objectstore_kv_stats (needs rocksdb_perf + rocksdb_collect_memory_stats).
     pub kv_stats: bool,
+    /// With kv_stats: set the two switches on an OSD found with them off (consent given at start).
+    pub kv_enable: bool,
     /// Ask tcmalloc for heap stats.
     pub heap: bool,
 }
@@ -327,6 +329,7 @@ impl Collector {
             let timeout = self.opts.timeout;
             let want_heap = self.opts.heap && !self.no_heap.contains(&d.name);
             let want_kv = self.opts.kv_stats && d.kind == "osd";
+            let kv_enable = self.opts.kv_enable;
             let target = target_key(&d.kind).map(|(k, _)| k.to_string());
             std::thread::spawn(move || {
                 let mut r = base;
@@ -353,23 +356,6 @@ impl Collector {
                         Err(e) => r.errors.push(format!("heap stats: {}", e)),
                     }
                 }
-                if want_kv {
-                    match asok::call(&sock, &asok::cmd("dump_objectstore_kv_stats", &[]), timeout) {
-                        Ok(t) => match serde_json::from_str::<serde_json::Value>(&t) {
-                            Ok(v) => r.kv_stats = Some(v),
-                            Err(_) => r.errors.push(format!(
-                                "kv stats: {}",
-                                t.lines()
-                                    .next()
-                                    .unwrap_or("")
-                                    .chars()
-                                    .take(80)
-                                    .collect::<String>()
-                            )),
-                        },
-                        Err(e) => r.errors.push(format!("kv stats: {}", e)),
-                    }
-                }
                 let mut keys: Vec<String> = Vec::new();
                 if let Some(k) = target {
                     keys.push(k);
@@ -385,6 +371,40 @@ impl Collector {
                         if let Some(s) = v.get(&k).and_then(|x| x.as_str()) {
                             r.config.insert(k.clone(), s.to_string());
                         }
+                    }
+                }
+                // the consent given at start covers the run: an OSD found with a switch off (it
+                // restarted, or it was unreachable at start) gets it set now, restored on exit
+                if want_kv && kv_enable {
+                    for k in ["rocksdb_perf", "rocksdb_collect_memory_stats"] {
+                        if let Some(v) = r.config.get(k).filter(|v| v.as_str() != "true").cloned() {
+                            let c = crate::kvstats::Change {
+                                socket: sock.clone(),
+                                daemon: r.name.clone(),
+                                var: k.into(),
+                                before: v,
+                            };
+                            for e in crate::kvstats::apply(&[c], timeout) {
+                                r.errors.push(e);
+                            }
+                        }
+                    }
+                }
+                if want_kv {
+                    match asok::call(&sock, &asok::cmd("dump_objectstore_kv_stats", &[]), timeout) {
+                        Ok(t) => match serde_json::from_str::<serde_json::Value>(&t) {
+                            Ok(v) => r.kv_stats = Some(v),
+                            Err(_) => r.errors.push(format!(
+                                "kv stats: {}",
+                                t.lines()
+                                    .next()
+                                    .unwrap_or("")
+                                    .chars()
+                                    .take(80)
+                                    .collect::<String>()
+                            )),
+                        },
+                        Err(e) => r.errors.push(format!("kv stats: {}", e)),
                     }
                 }
                 r.spread_ms = (t0.elapsed()).as_millis() as u64;

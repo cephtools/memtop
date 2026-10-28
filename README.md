@@ -155,7 +155,9 @@ for neither rates nor peaks. Rates divide by the measured interval.
 Read-only, except `--enable-kv-stats`, which sets `rocksdb_perf` and
 `rocksdb_collect_memory_stats` on OSDs that lack them after asking (`--yes` skips the question),
 and restores them on exit, on SIGINT/SIGTERM/SIGHUP, and on a panic. Switches already on are left
-alone. The per-PG pglog view (`g` on an OSD) shells out to `ceph pg dump pgs` with the daemon's
+alone. The consent covers the run: an OSD that restarts or becomes reachable later gets the switches
+too. An n/a memtable row says why it is unknown: the switches are off on that OSD, the read failed,
+or it was not requested. The per-PG pglog view (`g` on an OSD) shells out to `ceph pg dump pgs` with the daemon's
 own conf (`-c`), `--conf`, or `$CEPH_CONF`, and reads "unavailable" when that fails.
 
 ## Tests
