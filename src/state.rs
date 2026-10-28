@@ -80,13 +80,22 @@ struct DaemonState {
     restart_ticks_left: u8,
 }
 
+/// One sample with its accounting, computed once; tracking and views derive from it.
+struct Snapshot {
+    sample: RawSample,
+    sampling_ms: Option<u64>,
+    node: NodeAccount,
+    /// In the sample's daemon order.
+    daemons: Vec<DaemonAccount>,
+}
+
 #[derive(Default)]
 pub struct State {
     node: BTreeMap<String, Track>,
     daemons: BTreeMap<String, DaemonState>,
     last_mono: Option<u64>,
-    /// The last sample and its measured interval, so the view can be rebuilt after a reset.
-    last: Option<(RawSample, Option<u64>)>,
+    /// The last snapshot, so the view can be rebuilt after a reset without new reads.
+    last: Option<Snapshot>,
     /// Reads spread wider than this (ms) make a sample degraded.
     pub max_spread_ms: u64,
     /// Largest acceptable residual, percent of the level's total.
@@ -173,7 +182,7 @@ impl State {
         }
     }
 
-    /// Feed one sample: update every track, then build the view from the sample and the tracks.
+    /// Feed one sample: account for it once, update every track from it, then build the view.
     pub fn ingest(&mut self, s: &RawSample) -> View {
         let sampling_ms = self.last_mono.map(|m| s.mono_ms.saturating_sub(m));
         self.last_mono = Some(s.mono_ms);
@@ -189,6 +198,7 @@ impl State {
         }
         self.node.retain(|k, _| seen.contains(k));
         let mut names = std::collections::HashSet::new();
+        let mut accounts = Vec::with_capacity(s.daemons.len());
         for d in &s.daemons {
             names.insert(d.name.clone());
             let p = d.pid.and_then(|pid| s.procs.iter().find(|p| p.pid == pid));
@@ -234,21 +244,29 @@ impl State {
             );
             st.cg_auth
                 .update(acc.cgroup.as_ref().and_then(|c| c.peak), s.wall_ms);
+            accounts.push(acc);
         }
         self.daemons.retain(|k, _| names.contains(k));
-        self.last = Some((s.clone(), sampling_ms));
-        self.build(s, sampling_ms)
+        self.last = Some(Snapshot {
+            sample: s.clone(),
+            sampling_ms,
+            node: na,
+            daemons: accounts,
+        });
+        self.build()
     }
 
-    /// The view for the last sample with the tracks as they are now: after a peak reset, the
-    /// summary and the tables show it at once instead of at the next sample.
+    /// The view of the last snapshot with the tracks as they are now: after a peak reset, the
+    /// summary and the tables show it at once instead of at the next sample. No reads.
     pub fn refresh(&self) -> Option<View> {
-        self.last.as_ref().map(|(s, sm)| self.build(s, *sm))
+        self.last.as_ref().map(|_| self.build())
     }
 
-    fn build(&self, s: &RawSample, sampling_ms: Option<u64>) -> View {
+    fn build(&self) -> View {
+        let snap = self.last.as_ref().expect("ingest before build");
+        let s = &snap.sample;
         let node_good = s.spread_ms <= self.max_spread_ms;
-        let na: NodeAccount = node_account(s);
+        let na = &snap.node;
         let node = NodeView {
             total: na.total,
             residual_pct: na.residual_pct,
@@ -264,11 +282,9 @@ impl State {
                 .collect(),
         };
         let mut daemons = Vec::new();
-        for d in &s.daemons {
-            let p = d.pid.and_then(|pid| s.procs.iter().find(|p| p.pid == pid));
+        for (d, acc) in s.daemons.iter().zip(snap.daemons.iter()) {
             let st = self.daemons.get(&d.name);
             let good = !d.stale && d.spread_ms <= self.max_spread_ms && node_good;
-            let acc: DaemonAccount = daemon_account(d, p, s);
             let rows = acc
                 .rows
                 .iter()
@@ -300,7 +316,7 @@ impl State {
                     }
                 }),
                 spread_ms: d.spread_ms,
-                account: acc,
+                account: acc.clone(),
                 rows,
             });
         }
@@ -310,7 +326,7 @@ impl State {
             seq: s.seq,
             wall_ms: s.wall_ms,
             mono_ms: s.mono_ms,
-            sampling_ms,
+            sampling_ms: snap.sampling_ms,
             node,
             daemons,
         };

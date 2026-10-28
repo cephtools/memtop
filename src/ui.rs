@@ -20,6 +20,9 @@ pub struct Ui {
     pub opts: Opts,
     pub message: String,
     pub pglog: Option<(String, Result<Vec<crate::pglog::PgLog>, String>)>,
+    /// A per-PG query in flight, answered on its own thread so the screen keeps refreshing.
+    pub pglog_rx:
+        Option<std::sync::mpsc::Receiver<(String, Result<Vec<crate::pglog::PgLog>, String>)>>,
     pub help: bool,
 }
 
@@ -31,6 +34,7 @@ impl Ui {
             opts,
             message: String::new(),
             pglog: None,
+            pglog_rx: None,
             help: false,
         }
     }

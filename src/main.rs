@@ -293,9 +293,19 @@ fn main() {
     let mut view: Option<state::View> = None;
     let mut next_tick = Instant::now();
     let replay_pace = cli.replay.is_some();
+    // the screen is drawn when the view or the UI state changed, not on every poll
+    let mut dirty = true;
     'outer: loop {
         if stop.load(Ordering::SeqCst) {
             break;
+        }
+        if let Some(rx) = &u.pglog_rx {
+            if let Ok(r) = rx.try_recv() {
+                u.pglog = Some(r);
+                u.pglog_rx = None;
+                u.message.clear();
+                dirty = true;
+            }
         }
         let due = !replay_pace || Instant::now() >= next_tick;
         if due {
@@ -307,13 +317,18 @@ fn main() {
                 }
                 view = Some(st.ingest(&s));
                 next_tick = Instant::now() + interval;
+                dirty = true;
             } else if replay_pace {
                 u.message = "end of fixture".into();
                 next_tick = Instant::now() + interval;
+                dirty = true;
             }
         }
-        if let Some(v) = &view {
-            let _ = term.draw(|f| ui::draw(f, v, &u));
+        if dirty {
+            if let Some(v) = &view {
+                let _ = term.draw(|f| ui::draw(f, v, &u));
+            }
+            dirty = false;
         }
         let wait = if view.is_none() {
             Duration::from_millis(50)
@@ -323,10 +338,16 @@ fn main() {
                 .min(Duration::from_millis(100))
         };
         if event::poll(wait).unwrap_or(false) {
-            if let Ok(Event::Key(k)) = event::read() {
+            let ev = event::read();
+            if let Ok(Event::Resize(..)) = ev {
+                dirty = true;
+                continue;
+            }
+            if let Ok(Event::Key(k)) = ev {
                 if k.kind != KeyEventKind::Press {
                     continue;
                 }
+                dirty = true;
                 if u.help {
                     u.help = false;
                     continue;
@@ -404,24 +425,28 @@ fn main() {
                     (KeyCode::Char('g'), _) => {
                         if let (ui::Screen::Daemon(n), Some(v)) = (&u.screen, &view) {
                             if let Some(d) = v.daemons.iter().find(|d| &d.account.name == n) {
-                                if d.account.kind == "osd" {
+                                if d.account.kind != "osd" {
+                                    u.message = "per-PG pglog applies to OSDs".into();
+                                } else if u.pglog_rx.is_some() {
+                                    u.message = "pg dump query still running".into();
+                                } else {
                                     let id: u32 = n.trim_start_matches("osd.").parse().unwrap_or(0);
-                                    let (conf, bindir) = (d.conf.clone(), d.bindir.clone());
                                     let q = pglog::PgQuery {
                                         conf: cli
                                             .conf
                                             .clone()
-                                            .or(conf)
+                                            .or(d.conf.clone())
                                             .or_else(|| std::env::var("CEPH_CONF").ok()),
                                         keyring: cli.keyring.clone(),
-                                        bindir,
+                                        bindir: d.bindir.clone(),
                                     };
+                                    let name = n.clone();
+                                    let (tx, rx) = std::sync::mpsc::channel();
+                                    std::thread::spawn(move || {
+                                        let _ = tx.send((name.clone(), pglog::fetch(&q, id)));
+                                    });
+                                    u.pglog_rx = Some(rx);
                                     u.message = "querying pg dump ...".into();
-                                    let _ = term.draw(|f| ui::draw(f, v, &u));
-                                    u.pglog = Some((n.clone(), pglog::fetch(&q, id)));
-                                    u.message.clear();
-                                } else {
-                                    u.message = "per-PG pglog applies to OSDs".into();
                                 }
                             }
                         }

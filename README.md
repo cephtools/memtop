@@ -18,6 +18,24 @@ cluster fsid) or on a `vstart.sh` tree (`$VSTART_DEST/asok`, `./build/asok`, `./
 and every bound `*.asok` the kernel lists). `--asok` and `--asok-dir` add paths. Daemons whose
 socket cannot be read are listed with the reason, never omitted.
 
+## Design: one snapshot, then everything else
+
+```
+collector (own thread, once per interval)        pure, no reads                    output
+/proc, cgroups ──┐                                ┌─ node_account ──┐
+admin sockets ───┼─► RawSample (one timestamp) ──►│  daemon_account ├─► tracks ─► View ─► table / TUI / JSON
+(one thread each)┘        │                       └─ verify ────────┘    (peaks, rates)      verdict
+                          └─► --record                                   ◄─ --replay
+```
+
+`Collector::sample()` is the only place that reads the host: it takes /proc and the cgroups, then
+asks every socket on its own thread within a budget, and returns one `RawSample` under one
+monotonic timestamp (a late daemon keeps its last values, marked stale). Everything after is a
+function of that sample: the accounting, the checks, the peak and rate tracks, the tables, the
+JSON. A recorded sample replays through the same path, which is what the tests rely on. The only
+other reads are on request: the per-PG query (`g`) runs `ceph pg dump` on its own thread, and
+`--enable-kv-stats` talks to the daemons at start and exit.
+
 ## The two identities
 
 **Node**: rows sum to MemTotal. Each Ceph daemon is charged its anonymous resident memory

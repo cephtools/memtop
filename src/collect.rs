@@ -48,7 +48,7 @@ pub struct Collector {
     start: Instant,
     seq: u64,
     pub known: Vec<DaemonInfo>,
-    probed: HashMap<String, Result<(String, Option<String>, Option<String>), String>>,
+    probed: HashMap<String, (String, Option<String>, Option<String>)>,
     in_flight: HashMap<String, Arc<AtomicBool>>,
     last: HashMap<String, RawDaemon>,
     no_heap: HashSet<String>,
@@ -141,33 +141,33 @@ impl Collector {
     }
 
     /// Ask a socket who it is. Cached per path: a socket keeps its identity for its lifetime.
+    /// Ask a socket who it is. A successful answer is cached per path (a socket keeps its
+    /// identity for its lifetime); a failure is retried at the next discovery.
     fn probe(&mut self, path: &str) -> Result<(String, Option<String>, Option<String>), String> {
         if let Some(r) = self.probed.get(path) {
-            return r.clone();
+            return Ok(r.clone());
         }
         let t = self.opts.timeout;
-        let r = (|| {
-            let show = asok::call_json(path, &asok::cmd("config show", &[]), t).map_err(|e| e.0)?;
-            let name = show
-                .get("name")
-                .and_then(|v| v.as_str())
-                .map(|s| s.to_string())
-                .ok_or_else(|| "config show has no name".to_string())?;
-            let fsid = show
-                .get("fsid")
-                .and_then(|v| v.as_str())
-                .map(|s| s.to_string());
-            let version = asok::call_json(path, &asok::cmd("version", &[]), t)
-                .ok()
-                .and_then(|v| {
-                    v.get("version")
-                        .and_then(|x| x.as_str())
-                        .map(|s| s.to_string())
-                });
-            Ok((name, fsid, version))
-        })();
+        let show = asok::call_json(path, &asok::cmd("config show", &[]), t).map_err(|e| e.0)?;
+        let name = show
+            .get("name")
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_string())
+            .ok_or_else(|| "config show has no name".to_string())?;
+        let fsid = show
+            .get("fsid")
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_string());
+        let version = asok::call_json(path, &asok::cmd("version", &[]), t)
+            .ok()
+            .and_then(|v| {
+                v.get("version")
+                    .and_then(|x| x.as_str())
+                    .map(|s| s.to_string())
+            });
+        let r = (name, fsid, version);
         self.probed.insert(path.to_string(), r.clone());
-        r
+        Ok(r)
     }
 
     pub fn discover(&mut self, procs: &[ProcInfo], net_unix: &[(u64, String)]) {
