@@ -36,6 +36,21 @@ JSON. A recorded sample replays through the same path, which is what the tests r
 other reads are on request: the per-PG query (`g`) runs `ceph pg dump` on its own thread, and
 `--enable-kv-stats` talks to the daemons at start and exit.
 
+## Code map
+
+| file | what it holds |
+|---|---|
+| `src/main.rs` | the command line, the sample sources (live, replay), the plain/JSON loop and the TUI loop, signals and restore |
+| `src/collect.rs` | the only reader of the host: discovery, then one `RawSample` per tick, with the socket reads on threads under a budget (`read_daemon` is what one thread does) |
+| `src/proc.rs`, `src/asok.rs` | /proc and cgroup v2 parsers; the admin-socket wire protocol |
+| `src/raw.rs`, `src/fixture.rs` | `RawSample`, what one tick read, and its recording to and loading from disk |
+| `src/model.rs` | the accounting: `node_account`, `daemon_account` (the rows, the kernel and Ceph sides, their matches) |
+| `src/state.rs`, `src/peaks.rs` | tracks across samples (peaks, rates, restarts), the `View` and its verdict; one tracked quantity, and `KernelPeak` for VmHWM and memory.peak |
+| `src/render.rs` | summaries and tables as strings, flat and as a tree, shared by the TUI and `--plain` |
+| `src/ui.rs` | the terminal screens, and what the keys and the mouse do on them |
+| `src/kvstats.rs`, `src/pglog.rs` | the one write (the RocksDB switches, with consent and restore); the on-request per-PG query |
+| `src/units.rs` | sizes, rates and the clock, at fixed widths |
+
 ## The two identities
 
 **Node**: rows sum to MemTotal. Each Ceph daemon is charged its anonymous resident memory
@@ -183,6 +198,12 @@ shown but not tracked, and that unknown values stay blank.
 it opens a daemon, drags the border between the summary and the rows, presses `+`/`-`, clicks a
 row, scrolls, and checks where the boxes and the cursor end up, e.g.
 `scripts/tui-test.py target/debug/ceph-memtop --replay fixtures/vstart-write --interval 0.3`.
+
+`scripts/replay-diff.sh <old-binary> <new-binary> <recording>...` replays recordings through two
+binaries in every output form and compares them: a refactor must leave the JSON identical, and
+the text forms show where a wording changed. The recordings used for that on c28 (an object-write
+run, a recovery, a random write; 75 to 320 samples at 1 s) are too large for the repository;
+`--record` makes new ones.
 
 Not yet covered by a recorded fixture: a production (cephadm) node, other Ceph releases, a build
 without tcmalloc, MDS and RGW daemons. `--record` on such a host produces one.
