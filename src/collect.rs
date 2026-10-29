@@ -54,9 +54,14 @@ pub struct Collector {
     probed: HashMap<String, (String, Option<String>, Option<String>)>,
     in_flight: HashMap<String, Arc<AtomicBool>>,
     last: HashMap<String, RawDaemon>,
-    no_heap: HashSet<String>,
+    /// Daemons that answered they have no heap stats, and when: a daemon that is still starting
+    /// answers the same (its `heap` command is not registered yet), so it is asked again later.
+    no_heap: HashMap<String, Instant>,
     ticks_since_discovery: u32,
 }
+
+/// How long a "no heap stats" answer holds before the daemon is asked again.
+const HEAP_RETRY: Duration = Duration::from_secs(10);
 
 fn now_wall_ms() -> u64 {
     SystemTime::now()
@@ -76,7 +81,7 @@ impl Collector {
             probed: HashMap::new(),
             in_flight: HashMap::new(),
             last: HashMap::new(),
-            no_heap: HashSet::new(),
+            no_heap: HashMap::new(),
             ticks_since_discovery: 0,
         }
     }
@@ -325,7 +330,11 @@ impl Collector {
             let tx = tx.clone();
             let timeout = self.opts.timeout;
             let want = Wants {
-                heap: self.opts.heap && !self.no_heap.contains(&d.name),
+                heap: self.opts.heap
+                    && self
+                        .no_heap
+                        .get(&d.name)
+                        .is_none_or(|t| t.elapsed() >= HEAP_RETRY),
                 kv: self.opts.kv_stats && d.kind == "osd",
                 kv_consented: self.opts.kv_consented,
                 target_key: target_key(&d.kind).map(|(k, _)| k.to_string()),
@@ -364,7 +373,9 @@ impl Collector {
                             || e.contains("Invalid argument")
                             || e.contains("tcmalloc"))
                 }) {
-                    self.no_heap.insert(d.name.clone());
+                    self.no_heap.insert(d.name.clone(), Instant::now());
+                } else if r.heap.is_some() {
+                    self.no_heap.remove(&d.name);
                 }
                 self.last.insert(d.name.clone(), r.clone());
                 daemons.push(r);
