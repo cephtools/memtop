@@ -551,6 +551,8 @@ pub struct DaemonAccount {
     /// (config key, bytes)
     pub target: Option<(String, u64)>,
     pub cgroup: Option<crate::proc::CgroupMem>,
+    /// The rows; the view carries them with their tracks, so they are not serialized twice.
+    #[serde(skip)]
     pub rows: Vec<Row>,
     pub sum: Option<i128>,
     pub residual_pct: Option<u64>,
