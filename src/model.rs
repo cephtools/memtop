@@ -946,10 +946,13 @@ pub fn daemon_account(d: &RawDaemon, p: Option<&ProcInfo>, s: &RawSample) -> Dae
             .map(|r| r.id.as_str())
             .collect();
         if !unknown.is_empty() {
-            a.problems.push(format!(
-                "identity not closable: {} unknown",
-                unknown.join(" ")
-            ));
+            // a daemon that could not be read has its gaps explained by its errors
+            if d.errors.is_empty() {
+                a.problems.push(format!(
+                    "identity not closable: {} unknown",
+                    unknown.join(" ")
+                ));
+            }
         } else if sum != rss as i128 {
             a.problems
                 .push(format!("daemon rows sum to {} not RSS {}", sum, rss));
