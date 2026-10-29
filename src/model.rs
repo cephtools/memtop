@@ -7,7 +7,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 
 /// Mempools that BlueStore's meta priority cache counts as its own (BlueStore.h, MetaCache::_get_used_bytes).
-pub const META_CACHE_POOLS: &[&str] = &[
+const META_CACHE_POOLS: &[&str] = &[
     "bluestore_blob",
     "bluestore_extent",
     "bluestore_cache_buffer",
@@ -17,18 +17,30 @@ pub const META_CACHE_POOLS: &[&str] = &[
     "bluestore_shared_blob",
     "bluestore_inline_bl",
 ];
-pub const DATA_CACHE_POOLS: &[&str] = &["bluestore_cache_data"];
-pub const OSDMAP_POOLS: &[&str] = &["osdmap", "osdmap_mapping", "osd_mapbl", "pgmap"];
-pub const ALLOC_POOLS: &[&str] = &["bluestore_alloc"];
-pub const BUFFER_POOLS: &[&str] = &["buffer_anon", "buffer_meta"];
-pub const WRITE_POOLS: &[&str] = &[
+const DATA_CACHE_POOLS: &[&str] = &["bluestore_cache_data"];
+const OSDMAP_POOLS: &[&str] = &["osdmap", "osdmap_mapping", "osd_mapbl", "pgmap"];
+const ALLOC_POOLS: &[&str] = &["bluestore_alloc"];
+const BUFFER_POOLS: &[&str] = &["buffer_anon", "buffer_meta"];
+const WRITE_POOLS: &[&str] = &[
     "bluestore_txc",
     "bluestore_writing",
     "bluestore_writing_deferred",
     "bluestore_fsck",
 ];
-pub const BLUEFS_POOLS: &[&str] = &["bluefs", "bluefs_file_reader", "bluefs_file_writer"];
-pub const PGLOG_POOLS: &[&str] = &["osd_pglog"];
+const BLUEFS_POOLS: &[&str] = &["bluefs", "bluefs_file_reader", "bluefs_file_writer"];
+const PGLOG_POOLS: &[&str] = &["osd_pglog"];
+/// The rows built from mempool groups; they must add up to dump_mempools' total.
+const MEMPOOL_ROWS: &[&str] = &[
+    "cache:data",
+    "cache:meta",
+    "nocache:pglog",
+    "nocache:osdmap",
+    "nocache:alloc",
+    "nocache:writes",
+    "nocache:bluefs",
+    "nocache:buffers",
+    "nocache:other",
+];
 
 /// One accounting row before tracking.
 #[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq)]
@@ -87,6 +99,11 @@ impl Row {
         }
         self.value.map(|v| v as i128)
     }
+}
+
+/// The sum of every known contribution: what the level's rows add up to so far.
+fn known_sum(rows: &[Row]) -> i128 {
+    rows.iter().filter_map(Row::contribution).sum()
 }
 
 /// The node level: rows that sum to MemTotal.
@@ -374,15 +391,11 @@ pub fn node_account(s: &RawSample) -> NodeAccount {
         .note("inside kernel, other")
         .reference(),
     );
-    a.sum = rows
-        .iter()
-        .filter_map(|r| r.contribution())
-        .fold(Some(0i128), |acc, v| acc.map(|x| x + v));
-    if let Some(sum) = a.sum {
-        if named.is_some() && sum != total as i128 {
-            a.problems
-                .push(format!("node rows sum to {} not MemTotal {}", sum, total));
-        }
+    let sum = known_sum(&rows);
+    a.sum = Some(sum);
+    if named.is_some() && sum != total as i128 {
+        a.problems
+            .push(format!("node rows sum to {} not MemTotal {}", sum, total));
     }
     a.rows = rows;
     a
@@ -491,6 +504,31 @@ pub struct Match {
     pub ok: bool,
     pub hard: bool,
     pub detail: String,
+}
+
+/// A figure derived by subtraction: unknown when an input is missing, negative when the two
+/// inputs disagree (then the identity cannot hold and the match says which input is off).
+#[derive(Clone, Copy, Debug)]
+enum Derived {
+    Missing,
+    Negative,
+    Known(u64),
+}
+
+impl Derived {
+    fn sub(x: Option<u64>, y: Option<u64>) -> Derived {
+        match (x, y) {
+            (Some(x), Some(y)) if x >= y => Derived::Known(x - y),
+            (Some(_), Some(_)) => Derived::Negative,
+            _ => Derived::Missing,
+        }
+    }
+    fn known(self) -> Option<u64> {
+        match self {
+            Derived::Known(v) => Some(v),
+            _ => None,
+        }
+    }
 }
 
 fn close(a: u64, b: u64, pct: u64, abs: u64) -> bool {
@@ -868,205 +906,18 @@ pub fn daemon_account(d: &RawDaemon, p: Option<&ProcInfo>, s: &RawSample) -> Dae
         .filter(|r| !r.reference)
         .filter_map(|r| r.value)
         .sum();
-    // the heap and what is outside it
     a.heap = d.heap.as_deref().and_then(parse_heap_stats);
     let mapped = perf
         .and_then(|p| perf_u64(p, pricache, "mapped_bytes"))
         .filter(|v| *v > 0);
-    let anon = p.and_then(|p| p.rss_anon);
-    match (&a.heap, mapped) {
-        (Some(h), _) => {
-            // tcmalloc's "actual" counts pages it holds, resident or not: a span handed out by the
-            // OS and never touched is not in RssAnon. Whatever exceeds RssAnon is taken from the
-            // free lists first, then from the in-use bytes, so the rows still add up to RSS.
-            let heap_resident = anon.map(|an| an.min(h.actual)).unwrap_or(h.actual);
-            let nonres = h.actual - heap_resident;
-            let free_all = h.actual.saturating_sub(h.in_use);
-            let free_res = free_all.saturating_sub(nonres);
-            let in_use_res = heap_resident - free_res;
-            let un = in_use_res as i128 - attributed as i128;
-            if un >= 0 && have_pools {
-                rows.push(
-                    Row::new(
-                        "heap:unattributed",
-                        "heap, not in any mempool",
-                        Some(un as u64),
-                        "tcmalloc in use - rows above",
-                    )
-                    .note("mostly the PG log beyond its count (estimate below), size-class rounding on mempool objects, startup objects (log and perf buffers, scrubbers)")
-                    .residual(),
-                );
-            } else if have_pools {
-                rows.push(
-                    Row::new(
-                        "heap:unattributed",
-                        "heap, not in any mempool",
-                        None,
-                        "tcmalloc in use - rows above",
-                    )
-                    .note("negative: mempools claim more than the resident heap holds")
-                    .residual(),
-                );
-                a.problems
-                    .push("mempool rows exceed tcmalloc in-use bytes".into());
-            } else {
-                rows.push(
-                    Row::new(
-                        "heap:unattributed",
-                        "heap in use (no mempool data)",
-                        Some(in_use_res),
-                        "tcmalloc in use",
-                    )
-                    .residual(),
-                );
-            }
-            rows.push(
-                Row::new(
-                    "heap:free",
-                    "allocator: free lists and metadata",
-                    Some(free_res),
-                    "tcmalloc actual - in use",
-                )
-                .note(format!(
-                    "allocator_overhead {} = page heap {} central {} transfer {} thread {} meta {}; {} of it not resident",
-                    crate::units::bytes(Some(free_res + nonres)),
-                    crate::units::bytes(Some(h.pageheap_free)),
-                    crate::units::bytes(Some(h.central_free)),
-                    crate::units::bytes(Some(h.transfer_free)),
-                    crate::units::bytes(Some(h.thread_free)),
-                    crate::units::bytes(Some(h.metadata)),
-                    crate::units::bytes(Some(nonres))
-                )),
-            );
-            if nonres > 0 {
-                rows.push(
-                    Row::new(
-                        "ref:heap_nonresident",
-                        "heap held but not resident",
-                        Some(nonres),
-                        "tcmalloc actual - RssAnon",
-                    )
-                    .reference(),
-                );
-            }
-            match anon {
-                Some(an) => rows.push(
-                    Row::new(
-                        "anon:outside_heap",
-                        "anon outside heap (stacks, other allocators)",
-                        Some(an - heap_resident),
-                        "RssAnon - resident heap",
-                    )
-                    .residual(),
-                ),
-                None => rows.push(
-                    Row::new(
-                        "anon:outside_heap",
-                        "anon outside the heap",
-                        None,
-                        "RssAnon - resident heap",
-                    )
-                    .note("process not readable")
-                    .residual(),
-                ),
-            }
-        }
-        (None, Some(m)) => {
-            let m = anon.map(|an| an.min(m)).unwrap_or(m);
-            let un = m as i128 - attributed as i128;
-            if un >= 0 && have_pools {
-                rows.push(
-                    Row::new(
-                        "heap:rest",
-                        "heap not in any mempool + allocator free lists",
-                        Some(un as u64),
-                        "pricache mapped_bytes - rows above",
-                    )
-                    .note("no heap stats: the two cannot be told apart")
-                    .residual(),
-                );
-            } else if have_pools {
-                rows.push(
-                    Row::new(
-                        "heap:rest",
-                        "heap, not in any mempool",
-                        None,
-                        "pricache mapped_bytes - rows above",
-                    )
-                    .note("negative: inputs disagree")
-                    .residual(),
-                );
-                a.problems.push("mempool rows exceed mapped heap".into());
-            } else {
-                rows.push(
-                    Row::new(
-                        "heap:rest",
-                        "heap (no mempool data)",
-                        Some(m),
-                        "pricache mapped_bytes",
-                    )
-                    .residual(),
-                );
-            }
-            match anon {
-                Some(an) => rows.push(
-                    Row::new(
-                        "anon:outside_heap",
-                        "anon outside the heap",
-                        Some(an - m),
-                        "RssAnon - mapped_bytes",
-                    )
-                    .residual(),
-                ),
-                None => rows.push(
-                    Row::new(
-                        "anon:outside_heap",
-                        "anon outside the heap",
-                        None,
-                        "RssAnon - mapped_bytes",
-                    )
-                    .residual(),
-                ),
-            }
-        }
-        (None, None) => {
-            let r = anon.map(|an| an as i128 - attributed as i128);
-            match r {
-                Some(v) if v >= 0 => rows.push(
-                    Row::new(
-                        "anon:unattributed",
-                        "anon, unattributed (no heap stats)",
-                        Some(v as u64),
-                        "RssAnon - rows above",
-                    )
-                    .residual(),
-                ),
-                Some(_) => {
-                    rows.push(
-                        Row::new(
-                            "anon:unattributed",
-                            "anon, unattributed",
-                            None,
-                            "RssAnon - rows above",
-                        )
-                        .note("negative: mempools exceed RssAnon")
-                        .residual(),
-                    );
-                    a.problems.push("mempool rows exceed RssAnon".into());
-                }
-                None => rows.push(
-                    Row::new(
-                        "anon:unattributed",
-                        "anon, unattributed",
-                        None,
-                        "RssAnon - rows above",
-                    )
-                    .note("process not readable")
-                    .residual(),
-                ),
-            }
-        }
-    }
+    heap_rows(
+        &mut a,
+        &mut rows,
+        mapped,
+        p.and_then(|p| p.rss_anon),
+        attributed,
+        have_pools,
+    );
     if let Some(p) = p {
         rows.push(
             Row::new(
@@ -1084,17 +935,22 @@ pub fn daemon_account(d: &RawDaemon, p: Option<&ProcInfo>, s: &RawSample) -> Dae
             "RssShmem",
         ));
     }
-    a.sum = rows
-        .iter()
-        .filter_map(|r| r.contribution())
-        .fold(Some(0i128), |acc, v| acc.map(|x| x + v));
-    if let (Some(sum), Some(rss)) = (a.sum, a.rss) {
-        if rows
+    let sum = known_sum(&rows);
+    a.sum = Some(sum);
+    if let Some(rss) = a.rss {
+        // the identity: every summed row known, and the sum the RSS; optional rows may be
+        // unknown, their bytes then sit in the residual
+        let unknown: Vec<&str> = rows
             .iter()
-            .filter(|r| !r.reference)
-            .all(|r| r.value.is_some() || r.signed.is_some())
-            && sum != rss as i128
-        {
+            .filter(|r| !r.reference && !r.optional && r.value.is_none() && r.signed.is_none())
+            .map(|r| r.id.as_str())
+            .collect();
+        if !unknown.is_empty() {
+            a.problems.push(format!(
+                "identity not closable: {} unknown",
+                unknown.join(" ")
+            ));
+        } else if sum != rss as i128 {
             a.problems
                 .push(format!("daemon rows sum to {} not RSS {}", sum, rss));
         }
@@ -1114,6 +970,142 @@ pub fn daemon_account(d: &RawDaemon, p: Option<&ProcInfo>, s: &RawSample) -> Dae
     sides(&mut a, &rows, d, p, perf, pricache, have_pools);
     a.rows = rows;
     a
+}
+
+/// Where the heap figures come from; it decides what the residual row can be called.
+#[derive(Clone, Copy, PartialEq)]
+enum HeapSource {
+    /// tcmalloc heap stats: the application's in-use bytes and the free lists are told apart.
+    Tcmalloc,
+    /// Only the priority-cache tuner's mapped bytes: in-use and free lists together.
+    Tuner,
+    /// Neither: RssAnon bounds everything.
+    None,
+}
+
+/// The rows after the mempools: what the application holds beyond them (the residual), the
+/// allocator's free lists, heap pages held but not resident, and the anon memory outside the
+/// heap. `attributed` is what the rows so far already account for.
+fn heap_rows(
+    a: &mut DaemonAccount,
+    rows: &mut Vec<Row>,
+    mapped: Option<u64>,
+    anon: Option<u64>,
+    attributed: u64,
+    have_pools: bool,
+) {
+    // the heap's resident part, and the application's share of it
+    let (source, resident, in_use, free) = match (&a.heap, mapped) {
+        (Some(h), _) => {
+            // tcmalloc's "actual" counts pages it holds, resident or not: a span handed out by the
+            // OS and never touched is not in RssAnon. Whatever exceeds RssAnon is taken from the
+            // free lists first, then from the in-use bytes, so the rows still add up to RSS.
+            let resident = anon.map_or(h.actual, |an| an.min(h.actual));
+            let nonres = h.actual - resident;
+            let free = h.actual.saturating_sub(h.in_use).saturating_sub(nonres);
+            (
+                HeapSource::Tcmalloc,
+                Some(resident),
+                Some(resident - free),
+                Some((free, nonres)),
+            )
+        }
+        (None, Some(m)) => {
+            let m = anon.map_or(m, |an| an.min(m));
+            (HeapSource::Tuner, Some(m), Some(m), None)
+        }
+        (None, None) => (HeapSource::None, None, anon, None),
+    };
+    // the residual: in use beyond the rows above
+    let (id, label, label_no_pools, src, note, note_negative, problem) = match source {
+        HeapSource::Tcmalloc => (
+            "heap:unattributed",
+            "heap, not in any mempool",
+            "heap in use (no mempool data)",
+            "tcmalloc in use - rows above",
+            "mostly the PG log beyond its count (estimate below), size-class rounding on mempool objects, startup objects (log and perf buffers, scrubbers)",
+            "negative: mempools claim more than the resident heap holds",
+            "mempool rows exceed tcmalloc in-use bytes",
+        ),
+        HeapSource::Tuner => (
+            "heap:rest",
+            "heap not in any mempool + allocator free lists",
+            "heap (no mempool data)",
+            "pricache mapped_bytes - rows above",
+            "no heap stats: the two cannot be told apart",
+            "negative: inputs disagree",
+            "mempool rows exceed mapped heap",
+        ),
+        HeapSource::None => (
+            "anon:unattributed",
+            "anon, unattributed (no heap stats)",
+            "anon, unattributed (no heap stats)",
+            "RssAnon - rows above",
+            "",
+            "negative: mempools exceed RssAnon",
+            "mempool rows exceed RssAnon",
+        ),
+    };
+    rows.push(match in_use {
+        None => Row::new(id, label, None, src)
+            .note("process not readable")
+            .residual(),
+        Some(u) if (u as i128) < attributed as i128 => {
+            a.problems.push(problem.into());
+            Row::new(id, label, None, src)
+                .note(note_negative)
+                .residual()
+        }
+        Some(u) if have_pools => Row::new(id, label, Some(u - attributed), src)
+            .note(note)
+            .residual(),
+        Some(u) => Row::new(id, label_no_pools, Some(u - attributed), src).residual(),
+    });
+    if let (Some(h), Some((free, nonres))) = (&a.heap, free) {
+        rows.push(
+            Row::new(
+                "heap:free",
+                "allocator: free lists and metadata",
+                Some(free),
+                "tcmalloc actual - in use",
+            )
+            .note(format!(
+                "allocator_overhead {} = page heap {} central {} transfer {} thread {} meta {}; {} of it not resident",
+                crate::units::bytes(Some(free + nonres)),
+                crate::units::bytes(Some(h.pageheap_free)),
+                crate::units::bytes(Some(h.central_free)),
+                crate::units::bytes(Some(h.transfer_free)),
+                crate::units::bytes(Some(h.thread_free)),
+                crate::units::bytes(Some(h.metadata)),
+                crate::units::bytes(Some(nonres))
+            )),
+        );
+        if nonres > 0 {
+            rows.push(
+                Row::new(
+                    "ref:heap_nonresident",
+                    "heap held but not resident",
+                    Some(nonres),
+                    "tcmalloc actual - RssAnon",
+                )
+                .reference(),
+            );
+        }
+    }
+    // anon memory the heap does not hold: thread stacks, other allocators
+    if let Some(res) = resident {
+        let src = match source {
+            HeapSource::Tcmalloc => "RssAnon - resident heap",
+            _ => "RssAnon - mapped_bytes",
+        };
+        let label = "anon outside heap (stacks, other allocators)";
+        rows.push(match anon {
+            Some(an) => Row::new("anon:outside_heap", label, Some(an - res), src).residual(),
+            None => Row::new("anon:outside_heap", label, None, src)
+                .note("process not readable")
+                .residual(),
+        });
+    }
 }
 
 /// The kernel side, the Ceph side, and the checks between them.
@@ -1165,16 +1157,9 @@ fn sides(
     let heap_actual = a.heap.as_ref().map(|h| h.actual);
     let rss = a.kernel.rss;
     let cache_pools = sum_rows(&["cache:data", "cache:meta"]);
-    let sub = |x: Option<u64>, y: Option<u64>| -> Option<Option<u64>> {
-        // Some(None): known, but negative
-        match (x, y) {
-            (Some(x), Some(y)) => Some(if x >= y { Some(x - y) } else { None }),
-            _ => None,
-        }
-    };
-    let untracked = sub(heap_in_use, mempool_total);
-    let overhead = sub(heap_actual, heap_in_use);
-    let non_heap = sub(rss, heap_actual);
+    let untracked = Derived::sub(heap_in_use, mempool_total);
+    let overhead = Derived::sub(heap_actual, heap_in_use);
+    let non_heap = Derived::sub(rss, heap_actual);
     a.ceph = CephSide {
         target_key: a.target.as_ref().map(|t| t.0.clone()),
         target: a.target.as_ref().map(|t| t.1),
@@ -1182,9 +1167,9 @@ fn sides(
         mempool_total,
         heap_in_use,
         heap_actual,
-        untracked: untracked.flatten(),
-        allocator_overhead: overhead.flatten(),
-        non_heap: non_heap.flatten(),
+        untracked: untracked.known(),
+        allocator_overhead: overhead.known(),
+        non_heap: non_heap.known(),
         caches_used: sum_rows(&["cache:data", "cache:meta", "cache:kv", "cache:kv_onode"]),
         mempool_caches: cache_pools,
         block_caches: sum_rows(&["cache:kv", "cache:kv_onode"]),
@@ -1198,17 +1183,7 @@ fn sides(
             .filter(|v| *v > 0),
         tuner_unmapped: perf.and_then(|p| perf_u64(p, pricache, "unmapped_bytes")),
         mempool_rows: if have_pools {
-            sum_rows(&[
-                "cache:data",
-                "cache:meta",
-                "nocache:pglog",
-                "nocache:osdmap",
-                "nocache:alloc",
-                "nocache:writes",
-                "nocache:bluefs",
-                "nocache:buffers",
-                "nocache:other",
-            ])
+            sum_rows(MEMPOOL_ROWS)
         } else {
             None
         },
@@ -1220,7 +1195,7 @@ fn sides(
     // the identity between the two sides
     if let (Some(r), Some(mt), Some(_), Some(_)) = (rss, mempool_total, heap_in_use, heap_actual) {
         let (ok, detail) = match (untracked, overhead, non_heap) {
-            (Some(Some(u)), Some(Some(o)), Some(Some(n))) => (
+            (Derived::Known(u), Derived::Known(o), Derived::Known(n)) => (
                 mt + u + o + n == r,
                 format!(
                     "{} = {} + {} + {} + {}",
@@ -1231,7 +1206,7 @@ fn sides(
                     b(Some(n))
                 ),
             ),
-            (Some(None), _, _) => (
+            (Derived::Negative, _, _) => (
                 false,
                 format!(
                     "heap_in_use {} < mempool_total {}: mempools claim more than the heap holds",
@@ -1239,7 +1214,7 @@ fn sides(
                     b(Some(mt))
                 ),
             ),
-            (_, Some(None), _) => (
+            (_, Derived::Negative, _) => (
                 false,
                 format!(
                     "heap_actual {} < heap_in_use {}",
@@ -1247,7 +1222,7 @@ fn sides(
                     b(heap_in_use)
                 ),
             ),
-            (_, _, Some(None)) => (
+            (_, _, Derived::Negative) => (
                 false,
                 format!(
                     "heap_actual {} > rss {}: {} of the heap is not resident",

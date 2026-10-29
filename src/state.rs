@@ -105,34 +105,23 @@ pub struct State {
     pub tolerance_pct: u64,
 }
 
-/// Verify one view: node rows = MemTotal, each readable daemon's rows = its RSS, the hard
-/// cross-checks, and the residuals within tolerance.
+/// The verdict on one view: the problems each account found (its rows not adding up, inputs
+/// that disagree), and the residuals within tolerance. Daemons that could not be read are
+/// left out and named.
 pub fn verify(v: &View, tol: u64) -> Checks {
     let mut c = Checks {
         ok: true,
         ..Default::default()
     };
-    let n = &v.node;
-    let sum: Option<i128> = n
-        .rows
-        .iter()
-        .filter_map(|r| r.row.contribution())
-        .fold(Some(0i128), |a, x| a.map(|y| y + x));
-    match (sum, n.total) {
-        (Some(s), Some(t)) if s == t as i128 => {}
-        (Some(s), Some(t)) => c
-            .failures
-            .push(format!("node: rows sum {} != MemTotal {}", s, t)),
-        _ => c
-            .failures
-            .push("node: identity not closable (missing input)".into()),
+    fn residual(failures: &mut Vec<String>, who: &str, pct: Option<u64>, tol: u64) {
+        match pct {
+            Some(p) if p > tol => failures.push(format!("{}: residual {}% > {}%", who, p, tol)),
+            None => failures.push(format!("{}: residual unknown", who)),
+            _ => {}
+        }
     }
-    match n.residual_pct {
-        Some(p) if p > tol => c.failures.push(format!("node: residual {}% > {}%", p, tol)),
-        None => c.failures.push("node: residual unknown".into()),
-        _ => {}
-    }
-    for p in &n.problems {
+    residual(&mut c.failures, "node", v.node.residual_pct, tol);
+    for p in &v.node.problems {
         c.failures.push(format!("node: {}", p));
     }
     for d in &v.daemons {
@@ -141,33 +130,7 @@ pub fn verify(v: &View, tol: u64) -> Checks {
             c.unchecked.push(a.name.clone());
             continue;
         }
-        let rss = a.rss.unwrap();
-        let complete = d
-            .rows
-            .iter()
-            .filter(|r| !r.row.reference && !r.row.optional)
-            .all(|r| r.row.value.is_some() || r.row.signed.is_some());
-        let sum: Option<i128> = d
-            .rows
-            .iter()
-            .filter_map(|r| r.row.contribution())
-            .fold(Some(0i128), |a, x| a.map(|y| y + x));
-        match sum {
-            Some(s) if complete && s == rss as i128 => {}
-            Some(s) if complete => c
-                .failures
-                .push(format!("{}: rows sum {} != rss {}", a.name, s, rss)),
-            _ => c
-                .failures
-                .push(format!("{}: identity not closable", a.name)),
-        }
-        match a.residual_pct {
-            Some(p) if p > tol => c
-                .failures
-                .push(format!("{}: residual {}% > {}%", a.name, p, tol)),
-            None => c.failures.push(format!("{}: residual unknown", a.name)),
-            _ => {}
-        }
+        residual(&mut c.failures, &a.name, a.residual_pct, tol);
         for p in &a.problems {
             c.failures.push(format!("{}: {}", a.name, p));
         }
