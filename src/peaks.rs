@@ -3,8 +3,8 @@
 //! timestamp per row, never a history.
 //!
 //! Observed peaks are the maximum seen since the tool started (or the last reset or restart); a
-//! spike between two samples is invisible to them. Authoritative peaks, which the kernel records
-//! itself (VmHWM, memory.peak), are kept separately in `AuthPeak` and are never derived here.
+//! spike between two samples is invisible to them. Kernel peaks, which the kernel records itself
+//! (VmHWM, memory.peak), are kept separately in `KernelPeak` and are never derived here.
 
 use serde::Serialize;
 
@@ -78,14 +78,14 @@ impl Track {
 /// A peak the kernel keeps itself. The value is correct regardless of when the tool started; the
 /// time is only when the tool first saw that value (None: it was already there at start).
 #[derive(Clone, Debug, Default, Serialize, PartialEq)]
-pub struct AuthPeak {
+pub struct KernelPeak {
     pub value: Option<u64>,
     pub seen_ms: Option<u64>,
     #[serde(skip)]
     first: bool,
 }
 
-impl AuthPeak {
+impl KernelPeak {
     pub fn update(&mut self, v: Option<u64>, wall_ms: u64) {
         let Some(v) = v else {
             return;
@@ -182,8 +182,8 @@ mod tests {
     }
 
     #[test]
-    fn authoritative_peaks_keep_the_kernel_value() {
-        let mut a = AuthPeak::default();
+    fn kernel_peaks_keep_the_kernel_value() {
+        let mut a = KernelPeak::default();
         a.update(Some(500), 1000);
         assert_eq!(
             (a.value, a.seen_ms),
@@ -198,7 +198,7 @@ mod tests {
         );
         a.update(Some(600), 3000);
         assert_eq!((a.value, a.seen_ms), (Some(600), Some(3000)));
-        a = AuthPeak::default(); // what a restart does
+        a = KernelPeak::default(); // what a restart does
         assert_eq!(a.value, None);
     }
 }

@@ -2,7 +2,7 @@
 //! Track per row; samples are not retained.
 
 use crate::model::{daemon_account, node_account, DaemonAccount, NodeAccount, Row};
-use crate::peaks::{AuthPeak, Track};
+use crate::peaks::{KernelPeak, Track};
 use crate::raw::RawSample;
 use serde::Serialize;
 use std::collections::BTreeMap;
@@ -32,10 +32,10 @@ pub struct DaemonView {
     pub fsid: Option<String>,
     pub rss: Track,
     /// The kernel's own peak RSS (VmHWM).
-    pub rss_kernel_peak: AuthPeak,
+    pub rss_kernel_peak: KernelPeak,
     pub cgroup: Track,
     /// memory.peak of the cgroup, which outlives the process.
-    pub cgroup_kernel_peak: AuthPeak,
+    pub cgroup_kernel_peak: KernelPeak,
     pub errors: Vec<String>,
     pub conf: Option<String>,
     pub bindir: Option<String>,
@@ -73,9 +73,9 @@ struct DaemonState {
     starttime: u64,
     rows: BTreeMap<String, Track>,
     rss: Track,
-    rss_auth: AuthPeak,
-    cg: Track,
-    cg_auth: AuthPeak,
+    rss_kernel: KernelPeak,
+    cgroup: Track,
+    cgroup_kernel: KernelPeak,
     restarted_at: Option<u64>,
     restart_ticks_left: u8,
 }
@@ -182,14 +182,14 @@ impl State {
                 (None, _) => false,
             };
             if restarted {
-                let keep_cg = (st.cg.clone(), st.cg_auth.clone());
+                // the cgroup outlives the process: its tracks stay
                 *st = DaemonState {
                     restarted_at: Some(s.wall_ms),
                     restart_ticks_left: 10,
+                    cgroup: std::mem::take(&mut st.cgroup),
+                    cgroup_kernel: std::mem::take(&mut st.cgroup_kernel),
                     ..Default::default()
                 };
-                st.cg = keep_cg.0;
-                st.cg_auth = keep_cg.1;
             } else if st.restart_ticks_left > 0 {
                 st.restart_ticks_left -= 1;
             }
@@ -207,14 +207,14 @@ impl State {
             }
             st.rows.retain(|k, _| seen.contains(k));
             st.rss.update(acc.rss, s.mono_ms, s.wall_ms, node_good);
-            st.rss_auth.update(acc.vm_hwm, s.wall_ms);
-            st.cg.update(
+            st.rss_kernel.update(acc.vm_hwm, s.wall_ms);
+            st.cgroup.update(
                 acc.cgroup.as_ref().and_then(|c| c.current),
                 s.mono_ms,
                 s.wall_ms,
                 node_good,
             );
-            st.cg_auth
+            st.cgroup_kernel
                 .update(acc.cgroup.as_ref().and_then(|c| c.peak), s.wall_ms);
             accounts.push(acc);
         }
@@ -277,9 +277,9 @@ impl State {
                 version: d.version.clone(),
                 fsid: d.fsid.clone(),
                 rss: st.map(|st| st.rss.clone()).unwrap_or_default(),
-                rss_kernel_peak: st.map(|st| st.rss_auth.clone()).unwrap_or_default(),
-                cgroup: st.map(|st| st.cg.clone()).unwrap_or_default(),
-                cgroup_kernel_peak: st.map(|st| st.cg_auth.clone()).unwrap_or_default(),
+                rss_kernel_peak: st.map(|st| st.rss_kernel.clone()).unwrap_or_default(),
+                cgroup: st.map(|st| st.cgroup.clone()).unwrap_or_default(),
+                cgroup_kernel_peak: st.map(|st| st.cgroup_kernel.clone()).unwrap_or_default(),
                 errors: d.errors.clone(),
                 conf: d.conf.clone(),
                 bindir: d.bindir.clone(),
@@ -318,7 +318,7 @@ impl State {
         }
         for d in self.daemons.values_mut() {
             d.rss.reset_peak();
-            d.cg.reset_peak();
+            d.cgroup.reset_peak();
             for t in d.rows.values_mut() {
                 t.reset_peak();
             }
@@ -337,7 +337,7 @@ impl State {
                 if let Some(st) = self.daemons.get_mut(d) {
                     if row == "rss" {
                         st.rss.reset_peak();
-                        st.cg.reset_peak();
+                        st.cgroup.reset_peak();
                     } else if let Some(t) = st.rows.get_mut(row) {
                         t.reset_peak();
                     }

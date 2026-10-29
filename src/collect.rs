@@ -21,8 +21,9 @@ pub struct Options {
     pub budget: Duration,
     /// Read dump_objectstore_kv_stats (needs rocksdb_perf + rocksdb_collect_memory_stats).
     pub kv_stats: bool,
-    /// With kv_stats: set the two switches on an OSD found with them off (consent given at start).
-    pub kv_enable: bool,
+    /// With kv_stats: the operator agreed at start to set the two switches on an OSD found with
+    /// them off; the consent covers the run, so a restarted OSD gets them too.
+    pub kv_consented: bool,
     /// Ask tcmalloc for heap stats.
     pub heap: bool,
 }
@@ -228,11 +229,7 @@ impl Collector {
                 d.pid = Some(p.pid);
                 paired.insert(p.pid);
                 d.conf = conf_from_cmdline(&p.cmdline);
-                d.bindir = p.cmdline.first().and_then(|b| {
-                    Path::new(b)
-                        .parent()
-                        .map(|x| x.to_string_lossy().into_owned())
-                });
+                d.bindir = bindir_of(&p.cmdline);
             }
             found.push(d);
         }
@@ -248,11 +245,7 @@ impl Collector {
                 kind,
                 pid: Some(p.pid),
                 conf: conf_from_cmdline(&p.cmdline),
-                bindir: p.cmdline.first().and_then(|b| {
-                    Path::new(b)
-                        .parent()
-                        .map(|x| x.to_string_lossy().into_owned())
-                }),
+                bindir: bindir_of(&p.cmdline),
                 unreadable: Some("no admin socket found for this process".into()),
                 ..Default::default()
             });
@@ -331,93 +324,14 @@ impl Collector {
             let sock = sock.clone();
             let tx = tx.clone();
             let timeout = self.opts.timeout;
-            let want_heap = self.opts.heap && !self.no_heap.contains(&d.name);
-            let want_kv = self.opts.kv_stats && d.kind == "osd";
-            let kv_enable = self.opts.kv_enable;
-            let target = target_key(&d.kind).map(|(k, _)| k.to_string());
+            let want = Wants {
+                heap: self.opts.heap && !self.no_heap.contains(&d.name),
+                kv: self.opts.kv_stats && d.kind == "osd",
+                kv_consented: self.opts.kv_consented,
+                target_key: target_key(&d.kind).map(|(k, _)| k.to_string()),
+            };
             std::thread::spawn(move || {
-                let mut r = base;
-                match asok::call_json(&sock, &asok::cmd("perf dump", &[]), timeout) {
-                    Ok(v) => r.perf = Some(v),
-                    Err(e) => r.errors.push(format!("perf dump: {}", e)),
-                }
-                match asok::call_json(&sock, &asok::cmd("dump_mempools", &[]), timeout) {
-                    Ok(v) => r.mempools = Some(v),
-                    Err(e) => r.errors.push(format!("dump_mempools: {}", e)),
-                }
-                if want_heap {
-                    match asok::call(&sock, &asok::cmd("heap", &[("heapcmd", "stats")]), timeout) {
-                        Ok(t) if t.contains("Bytes in use by application") => r.heap = Some(t),
-                        Ok(t) => r.errors.push(format!(
-                            "heap stats: {}",
-                            t.lines()
-                                .next()
-                                .unwrap_or("")
-                                .chars()
-                                .take(80)
-                                .collect::<String>()
-                        )),
-                        Err(e) => r.errors.push(format!("heap stats: {}", e)),
-                    }
-                }
-                let mut keys: Vec<String> = Vec::new();
-                if let Some(k) = target {
-                    keys.push(k);
-                }
-                if r.kind == "osd" {
-                    keys.push("rocksdb_perf".into());
-                    keys.push("rocksdb_collect_memory_stats".into());
-                }
-                for k in keys {
-                    if let Ok(v) =
-                        asok::call_json(&sock, &asok::cmd("config get", &[("var", &k)]), timeout)
-                    {
-                        if let Some(s) = v.get(&k).and_then(|x| x.as_str()) {
-                            r.config.insert(k.clone(), s.to_string());
-                        }
-                    }
-                }
-                // the consent given at start covers the run: an OSD found with a switch off (it
-                // restarted, or it was unreachable at start) gets it set now, restored on exit
-                if want_kv && kv_enable {
-                    for k in ["rocksdb_perf", "rocksdb_collect_memory_stats"] {
-                        if let Some(v) = r.config.get(k).filter(|v| v.as_str() != "true").cloned() {
-                            let c = crate::kvstats::Change {
-                                socket: sock.clone(),
-                                daemon: r.name.clone(),
-                                var: k.into(),
-                                before: v,
-                            };
-                            for e in crate::kvstats::apply(&[c], timeout) {
-                                r.errors.push(e);
-                            }
-                        }
-                    }
-                }
-                if want_kv {
-                    match asok::call(&sock, &asok::cmd("dump_objectstore_kv_stats", &[]), timeout) {
-                        Ok(t) => match serde_json::from_str::<serde_json::Value>(&t) {
-                            Ok(v) => r.kv_stats = Some(v),
-                            Err(_) => r.errors.push(format!(
-                                "kv stats: {}",
-                                t.lines()
-                                    .next()
-                                    .unwrap_or("")
-                                    .chars()
-                                    .take(80)
-                                    .collect::<String>()
-                            )),
-                        },
-                        Err(e) => r.errors.push(format!("kv stats: {}", e)),
-                    }
-                }
-                if r.kind == "osd" {
-                    match asok::call_json(&sock, &asok::cmd("bluefs files list", &[]), timeout) {
-                        Ok(v) => r.bluefs_files = Some(v),
-                        Err(e) => r.errors.push(format!("bluefs files list: {}", e)),
-                    }
-                }
-                r.spread_ms = (t0.elapsed()).as_millis() as u64;
+                let r = read_daemon(&sock, base, &want, timeout, t0);
                 let _ = tx.send(r);
                 flag.store(false, Ordering::SeqCst);
             });
@@ -494,6 +408,101 @@ impl Collector {
     }
 }
 
+/// What to ask a daemon's socket beyond `perf dump` and `dump_mempools`.
+struct Wants {
+    /// tcmalloc heap stats; not asked again from a daemon that answered it has none.
+    heap: bool,
+    /// `dump_objectstore_kv_stats` and the two switches behind it (OSDs).
+    kv: bool,
+    /// Set a switch found off: the consent given at start covers the run.
+    kv_consented: bool,
+    /// The config key of this daemon kind's memory target.
+    target_key: Option<String>,
+}
+
+/// The first line of a reply, for an error message.
+fn first_line(t: &str) -> String {
+    t.lines().next().unwrap_or("").chars().take(80).collect()
+}
+
+/// Every socket read for one daemon, on its own thread: each command's reply or its error.
+fn read_daemon(
+    sock: &str,
+    mut r: RawDaemon,
+    want: &Wants,
+    timeout: Duration,
+    t0: Instant,
+) -> RawDaemon {
+    match asok::call_json(sock, &asok::cmd("perf dump", &[]), timeout) {
+        Ok(v) => r.perf = Some(v),
+        Err(e) => r.errors.push(format!("perf dump: {}", e)),
+    }
+    match asok::call_json(sock, &asok::cmd("dump_mempools", &[]), timeout) {
+        Ok(v) => r.mempools = Some(v),
+        Err(e) => r.errors.push(format!("dump_mempools: {}", e)),
+    }
+    if want.heap {
+        match asok::call(sock, &asok::cmd("heap", &[("heapcmd", "stats")]), timeout) {
+            Ok(t) if t.contains("Bytes in use by application") => r.heap = Some(t),
+            Ok(t) => r.errors.push(format!("heap stats: {}", first_line(&t))),
+            Err(e) => r.errors.push(format!("heap stats: {}", e)),
+        }
+    }
+    let mut keys: Vec<String> = want.target_key.iter().cloned().collect();
+    if r.kind == "osd" {
+        keys.push("rocksdb_perf".into());
+        keys.push("rocksdb_collect_memory_stats".into());
+    }
+    for k in keys {
+        if let Ok(v) = asok::call_json(sock, &asok::cmd("config get", &[("var", &k)]), timeout) {
+            if let Some(s) = v.get(&k).and_then(|x| x.as_str()) {
+                r.config.insert(k.clone(), s.to_string());
+            }
+        }
+    }
+    // the consent given at start covers the run: an OSD found with a switch off (it restarted, or
+    // it was unreachable at start) gets it set now, restored on exit
+    if want.kv && want.kv_consented {
+        for k in ["rocksdb_perf", "rocksdb_collect_memory_stats"] {
+            if let Some(v) = r.config.get(k).filter(|v| v.as_str() != "true").cloned() {
+                let c = crate::kvstats::Change {
+                    socket: sock.to_string(),
+                    daemon: r.name.clone(),
+                    var: k.into(),
+                    before: v,
+                };
+                r.errors.extend(crate::kvstats::apply(&[c], timeout));
+            }
+        }
+    }
+    if want.kv {
+        match asok::call(sock, &asok::cmd("dump_objectstore_kv_stats", &[]), timeout) {
+            Ok(t) => match serde_json::from_str::<serde_json::Value>(&t) {
+                Ok(v) => r.kv_stats = Some(v),
+                Err(_) => r.errors.push(format!("kv stats: {}", first_line(&t))),
+            },
+            Err(e) => r.errors.push(format!("kv stats: {}", e)),
+        }
+    }
+    if r.kind == "osd" {
+        match asok::call_json(sock, &asok::cmd("bluefs files list", &[]), timeout) {
+            Ok(v) => r.bluefs_files = Some(v),
+            Err(e) => r.errors.push(format!("bluefs files list: {}", e)),
+        }
+    }
+    r.spread_ms = t0.elapsed().as_millis() as u64;
+    r
+}
+
+/// The daemon binary's directory: a vstart tree keeps `ceph` next to it.
+fn bindir_of(cmdline: &[String]) -> Option<String> {
+    cmdline.first().and_then(|b| {
+        Path::new(b)
+            .parent()
+            .map(|x| x.to_string_lossy().into_owned())
+    })
+}
+
 pub fn conf_from_cmdline(cmdline: &[String]) -> Option<String> {
     let mut it = cmdline.iter().skip(1);
     while let Some(a) = it.next() {
@@ -518,7 +527,7 @@ mod tests {
             timeout: Duration::from_millis(50),
             budget: Duration::from_millis(100),
             kv_stats: false,
-            kv_enable: false,
+            kv_consented: false,
             heap: false,
         }
     }

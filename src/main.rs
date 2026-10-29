@@ -250,7 +250,7 @@ fn main() {
                     (interval.as_millis() as u64 * 3 / 4).clamp(300, cli.timeout.max(300) * 2),
                 ),
                 kv_stats: cli.enable_kv_stats,
-                kv_enable: false,
+                kv_consented: false,
                 heap: !cli.no_heap,
             };
             let mut c = collect::Collector::new(opts);
@@ -287,7 +287,7 @@ fn main() {
                         eprintln!("left as found; memtable rows will read n/a");
                     }
                 }
-                c.opts.kv_enable = ok;
+                c.opts.kv_consented = ok;
             }
             Source::Live(start_sampler(c, interval, stop.clone()))
         }
