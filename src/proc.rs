@@ -80,7 +80,6 @@ pub struct ProcInfo {
     /// Field 22 of /proc/pid/stat: start time in clock ticks since boot. A new value for the
     /// same pid is a restart.
     pub starttime: u64,
-    pub uid: u32,
     pub rss: Option<u64>,
     pub rss_anon: Option<u64>,
     pub rss_file: Option<u64>,
@@ -133,13 +132,6 @@ pub fn read_process(root: &Path, pid: u32) -> Option<ProcInfo> {
         };
         match k {
             "Name" => p.comm = v.to_string(),
-            "Uid" => {
-                p.uid = v
-                    .split_whitespace()
-                    .next()
-                    .and_then(|x| x.parse().ok())
-                    .unwrap_or(0)
-            }
             "VmRSS" => p.rss = kb(),
             "RssAnon" => p.rss_anon = kb(),
             "RssFile" => p.rss_file = kb(),
@@ -149,9 +141,7 @@ pub fn read_process(root: &Path, pid: u32) -> Option<ProcInfo> {
             _ => {}
         }
     }
-    if p.rss.is_none() {
-        return None; // a kernel thread: no address space, nothing to account
-    }
+    p.rss?; // a kernel thread: no address space, nothing to account
     p.cmdline = fs::read(dir.join("cmdline"))
         .map(|b| {
             b.split(|c| *c == 0)

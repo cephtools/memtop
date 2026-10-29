@@ -301,7 +301,6 @@ fn main() {
     let mut failed = 0usize;
     let mut checked = 0usize;
     if !tui {
-        let replaying = cli.replay.is_some();
         loop {
             if stop.load(Ordering::SeqCst) {
                 break;
@@ -327,7 +326,6 @@ fn main() {
             if cli.once {
                 break;
             }
-            let _ = replaying;
         }
         for e in kvstats::restore_all() {
             eprintln!("restore: {}", e);

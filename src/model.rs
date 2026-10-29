@@ -671,7 +671,7 @@ pub fn daemon_account(d: &RawDaemon, p: Option<&ProcInfo>, s: &RawSample) -> Dae
     let is_bluestore = d
         .perf
         .as_ref()
-        .map_or(false, |p| p.get("bluestore-pricache").is_some());
+        .is_some_and(|p| p.get("bluestore-pricache").is_some());
     let pricache = if is_bluestore {
         "bluestore-pricache"
     } else {
@@ -703,7 +703,7 @@ pub fn daemon_account(d: &RawDaemon, p: Option<&ProcInfo>, s: &RawSample) -> Dae
         rows.push(with_budget(r, "meta"));
     }
     let kv = perf.and_then(|p| perf_u64(p, "rocksdb-cache-default", "usage"));
-    if perf.map_or(false, |p| p.get("rocksdb-cache-default").is_some()) {
+    if perf.is_some_and(|p| p.get("rocksdb-cache-default").is_some()) {
         rows.push(with_budget(
             Row::new(
                 "cache:kv",
@@ -715,7 +715,7 @@ pub fn daemon_account(d: &RawDaemon, p: Option<&ProcInfo>, s: &RawSample) -> Dae
         ));
     }
     let kvo = perf.and_then(|p| perf_u64(p, "rocksdb-cache-O", "usage"));
-    if perf.map_or(false, |p| p.get("rocksdb-cache-O").is_some()) {
+    if perf.is_some_and(|p| p.get("rocksdb-cache-O").is_some()) {
         rows.push(with_budget(
             Row::new(
                 "cache:kv_onode",

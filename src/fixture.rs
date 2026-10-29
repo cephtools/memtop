@@ -16,7 +16,7 @@ pub fn load(dir: &Path) -> std::io::Result<Vec<RawSample>> {
         .flatten()
         .map(|e| e.path())
         .filter(|p| {
-            p.file_name().map_or(false, |n| {
+            p.file_name().is_some_and(|n| {
                 n.to_string_lossy().starts_with("sample-") && n.to_string_lossy().ends_with(".json")
             })
         })

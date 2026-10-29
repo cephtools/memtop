@@ -200,7 +200,7 @@ pub fn daemons_table(v: &View, o: Opts) -> Table {
             _ => String::new(),
         });
         let cg = a.cgroup.as_ref();
-        let shared = cg.map_or(false, |c| c.nprocs.map_or(false, |n| n > 1));
+        let shared = cg.is_some_and(|c| c.nprocs.is_some_and(|n| n > 1));
         cells.push(match cg.and_then(|c| c.current) {
             Some(c) => format!("{}{}", units::bytes(Some(c)), if shared { "*" } else { "" }),
             None => String::new(),
@@ -340,16 +340,13 @@ pub fn node_summary(v: &View) -> Vec<String> {
         },
         if n.degraded { " | DEGRADED SAMPLE" } else { "" }
     ));
-    let anon_all = get("AnonPages").or_else(|| {
-        let s: u64 = n
-            .rows
-            .iter()
-            .filter(|r| r.row.id.starts_with("anon:"))
-            .filter_map(|r| r.row.contribution())
-            .map(|x| x.max(0) as u64)
-            .sum();
-        Some(s)
-    });
+    // AnonPages: every anon row, the shared-pages correction included
+    let anon_all: i128 = n
+        .rows
+        .iter()
+        .filter(|r| r.row.id.starts_with("anon:"))
+        .filter_map(|r| r.row.contribution())
+        .sum();
     out.push(format!(
         "memory   free {} + page cache {} + shmem {} + slab {} + kernel {} + anon {} + other {} = {}",
         b(get("node:free")),
@@ -357,7 +354,7 @@ pub fn node_summary(v: &View) -> Vec<String> {
         b(get("node:shmem")),
         b(get("node:slab")),
         b(get("node:kernel")),
-        b(anon_all),
+        b(Some(anon_all.max(0) as u64)),
         b(get("node:other")),
         b(n.total)
     ));
@@ -609,7 +606,7 @@ impl Node {
             value: r.and_then(|r| r.row.value),
             note: r.map(|r| r.row.note.clone()).unwrap_or_default(),
             leaf: Some(id.into()),
-            reference: r.map_or(false, |r| r.row.reference),
+            reference: r.is_some_and(|r| r.row.reference),
             children: Vec::new(),
         }
     }
@@ -666,11 +663,6 @@ fn daemon_tree(d: &DaemonView) -> Vec<Node> {
     let c = &a.ceph;
     let b = units::bytes;
     let has = |id: &str| rows.iter().any(|r| r.row.id == id);
-    let val = |id: &str| {
-        rows.iter()
-            .find(|r| r.row.id == id)
-            .and_then(|r| r.row.value)
-    };
     // mempools: the caches BlueStore counts, and everything under no cache
     let mut cache_pools = Vec::new();
     if let Some(n) = Node::leaf_if(rows, "cache:data", "data cache (BlueStore buffers)") {
@@ -771,9 +763,8 @@ fn daemon_tree(d: &DaemonView) -> Vec<Node> {
     let in_use_children = vec![mempools_node, untracked_node];
     let in_use_v = sum_nodes(&in_use_children);
     let mut heap_children = Vec::new();
-    let heap_label;
-    let heap_v;
-    if has("heap:free") {
+
+    let (heap_label, heap_v) = if has("heap:free") {
         heap_children.push(Node::agg(
             "in use by the application (heap_in_use)",
             in_use_v,
@@ -788,17 +779,23 @@ fn daemon_tree(d: &DaemonView) -> Vec<Node> {
         if let Some(n) = Node::leaf_if(rows, "ref:heap_nonresident", "held but not resident") {
             heap_children.push(n);
         }
-        heap_label = "heap (tcmalloc actual, resident part)";
-        heap_v = sum_nodes(&heap_children);
+        (
+            "heap (tcmalloc actual, resident part)",
+            sum_nodes(&heap_children),
+        )
     } else if has("heap:rest") {
         heap_children = in_use_children;
-        heap_label = "heap (tuner's mapped bytes; no heap stats)";
-        heap_v = sum_nodes(&heap_children);
+        (
+            "heap (tuner's mapped bytes; no heap stats)",
+            sum_nodes(&heap_children),
+        )
     } else {
         heap_children = in_use_children;
-        heap_label = "heap (no heap stats, no tuner view)";
-        heap_v = sum_nodes(&heap_children);
-    }
+        (
+            "heap (no heap stats, no tuner view)",
+            sum_nodes(&heap_children),
+        )
+    };
     let mut anon_children = vec![Node::agg(heap_label, heap_v, "", heap_children)];
     if let Some(n) = Node::leaf_if(
         rows,
@@ -827,7 +824,6 @@ fn daemon_tree(d: &DaemonView) -> Vec<Node> {
     if let Some(n) = Node::leaf_if(rows, "rss:shmem", "shared memory") {
         top.push(n);
     }
-    let _ = val;
     top
 }
 
@@ -973,9 +969,7 @@ fn tree_table(
         out.push(TableRow {
             cells,
             dim: n.reference,
-            warn: n.value.is_none()
-                && !n.reference
-                && leaf.map_or(true, |r| r.row.signed.is_none()),
+            warn: n.value.is_none() && !n.reference && leaf.is_none_or(|r| r.row.signed.is_none()),
             ids,
         });
     }

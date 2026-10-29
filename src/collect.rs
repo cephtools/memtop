@@ -126,12 +126,12 @@ impl Collector {
                     // cephadm keeps one directory per cluster fsid
                     if let Ok(rd2) = std::fs::read_dir(&p) {
                         for e2 in rd2.flatten() {
-                            if e2.path().extension().map_or(false, |x| x == "asok") {
+                            if e2.path().extension().is_some_and(|x| x == "asok") {
                                 push(e2.path());
                             }
                         }
                     }
-                } else if p.extension().map_or(false, |x| x == "asok") {
+                } else if p.extension().is_some_and(|x| x == "asok") {
                     push(p);
                 }
             }
@@ -142,7 +142,6 @@ impl Collector {
         out
     }
 
-    /// Ask a socket who it is. Cached per path: a socket keeps its identity for its lifetime.
     /// Ask a socket who it is. A successful answer is cached per path (a socket keeps its
     /// identity for its lifetime); a failure is retried at the next discovery.
     fn probe(&mut self, path: &str) -> Result<(String, Option<String>, Option<String>), String> {
@@ -277,7 +276,7 @@ impl Collector {
         let lost = self
             .known
             .iter()
-            .any(|d| d.pid.map_or(false, |p| !pids_alive.contains(&p)));
+            .any(|d| d.pid.is_some_and(|p| !pids_alive.contains(&p)));
         if self.known.is_empty() || lost || self.ticks_since_discovery >= 15 {
             self.discover(&procs, &net_unix);
         }

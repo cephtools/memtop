@@ -50,7 +50,7 @@ impl Track {
         if !good {
             return;
         }
-        if self.peak.map_or(true, |(p, _)| v > p) {
+        if self.peak.is_none_or(|(p, _)| v > p) {
             self.peak = Some((v, wall_ms));
         }
         if let Some((pv, pt)) = self.prev {
@@ -94,7 +94,7 @@ impl AuthPeak {
             self.first = true;
             self.value = Some(v);
             self.seen_ms = None;
-        } else if self.value.map_or(true, |p| v > p) {
+        } else if self.value.is_none_or(|p| v > p) {
             self.value = Some(v);
             self.seen_ms = Some(wall_ms);
         }

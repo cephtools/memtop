@@ -39,6 +39,9 @@ impl Panes {
     }
 }
 
+/// A per-PG query's answer: the daemon it was made for, and its PGs or why it failed.
+pub type PgLogReply = (String, Result<Vec<crate::pglog::PgLog>, String>);
+
 pub struct Ui {
     pub screen: Screen,
     pub cursor: usize,
@@ -50,10 +53,9 @@ pub struct Ui {
     pub drag: Option<u16>,
     /// Where the last draw put the summary and the table.
     pub panes: Option<Panes>,
-    pub pglog: Option<(String, Result<Vec<crate::pglog::PgLog>, String>)>,
+    pub pglog: Option<PgLogReply>,
     /// A per-PG query in flight, answered on its own thread so the screen keeps refreshing.
-    pub pglog_rx:
-        Option<std::sync::mpsc::Receiver<(String, Result<Vec<crate::pglog::PgLog>, String>)>>,
+    pub pglog_rx: Option<std::sync::mpsc::Receiver<PgLogReply>>,
     pub help: bool,
 }
 

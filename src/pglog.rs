@@ -70,7 +70,7 @@ pub fn fetch(q: &PgQuery, osd_id: u32) -> Result<Vec<PgLog>, String> {
                             == Some(osd_id as u64),
                     });
                 }
-                out.sort_by(|a, b| (b.log_size + b.dups).cmp(&(a.log_size + a.dups)));
+                out.sort_by_key(|p| std::cmp::Reverse(p.log_size + p.dups));
                 return Ok(out);
             }
             Ok(o) => {
