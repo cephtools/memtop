@@ -49,7 +49,7 @@ fn load_fixture(name: &str) -> Vec<serde_json::Value> {
         .unwrap()
         .flatten()
         .map(|e| e.path())
-        .filter(|p| p.extension().map_or(false, |x| x == "json"))
+        .filter(|p| p.extension().is_some_and(|x| x == "json"))
         .collect();
     files.sort();
     files
@@ -136,7 +136,7 @@ fn replay_is_deterministic_and_the_peak_is_the_sample_maximum() {
             })
             .unwrap();
         let rss = p["rss"].as_u64().unwrap();
-        if best.map_or(true, |(v, _)| rss > v) {
+        if best.is_none_or(|(v, _)| rss > v) {
             best = Some((rss, s["wall_ms"].as_u64().unwrap()));
         }
     }

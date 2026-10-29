@@ -56,12 +56,16 @@ pub struct Collector {
     last: HashMap<String, RawDaemon>,
     /// Daemons that answered they have no heap stats, and when: a daemon that is still starting
     /// answers the same (its `heap` command is not registered yet), so it is asked again later.
-    no_heap: HashMap<String, Instant>,
+    /// Daemons whose last `heap stats` was refused: when, and how long to wait before asking
+    /// again. The wait doubles up to HEAP_RETRY_MAX, since every refused request is a line in the
+    /// daemon's log, and a mgr or rgw of v21.3.0 refuses it for good.
+    no_heap: HashMap<String, (Instant, Duration)>,
     ticks_since_discovery: u32,
 }
 
 /// How long a "no heap stats" answer holds before the daemon is asked again.
 const HEAP_RETRY: Duration = Duration::from_secs(10);
+const HEAP_RETRY_MAX: Duration = Duration::from_secs(600);
 
 fn now_wall_ms() -> u64 {
     SystemTime::now()
@@ -209,6 +213,11 @@ impl Collector {
                         .map(|(_, n)| n.to_string())
                         .filter(|n| n.contains('.'))
                         .unwrap_or(stem);
+                    // vstart names the rgw socket radosgw.<port>.asok for client.rgw.<port>
+                    let stem = stem
+                        .strip_prefix("radosgw.")
+                        .map(|p| format!("client.rgw.{}", p))
+                        .unwrap_or(stem);
                     d.kind = stem.split('.').next().unwrap_or("").to_string();
                     // a client's socket file outlives its process (rados bench, the ceph CLI):
                     // with nothing listening behind it, it is a leftover, not a daemon
@@ -233,6 +242,10 @@ impl Collector {
             if let Some(p) = by_inode.or(by_name) {
                 d.pid = Some(p.pid);
                 paired.insert(p.pid);
+                // the socket names a client-type daemon "client.rgw.a"; the binary says what it is
+                if let Some(k) = daemon_kind(&p.comm) {
+                    d.kind = k.to_string();
+                }
                 d.conf = conf_from_cmdline(&p.cmdline);
                 d.bindir = bindir_of(&p.cmdline);
             }
@@ -334,7 +347,7 @@ impl Collector {
                     && self
                         .no_heap
                         .get(&d.name)
-                        .is_none_or(|t| t.elapsed() >= HEAP_RETRY),
+                        .is_none_or(|(t, wait)| t.elapsed() >= *wait),
                 kv: self.opts.kv_stats && d.kind == "osd",
                 kv_consented: self.opts.kv_consented,
                 target_key: target_key(&d.kind).map(|(k, _)| k.to_string()),
@@ -373,7 +386,11 @@ impl Collector {
                             || e.contains("Invalid argument")
                             || e.contains("tcmalloc"))
                 }) {
-                    self.no_heap.insert(d.name.clone(), Instant::now());
+                    let wait = self
+                        .no_heap
+                        .get(&d.name)
+                        .map_or(HEAP_RETRY, |(_, w)| (*w * 2).min(HEAP_RETRY_MAX));
+                    self.no_heap.insert(d.name.clone(), (Instant::now(), wait));
                 } else if r.heap.is_some() {
                     self.no_heap.remove(&d.name);
                 }
@@ -433,7 +450,12 @@ struct Wants {
 
 /// The first line of a reply, for an error message.
 fn first_line(t: &str) -> String {
-    t.lines().next().unwrap_or("").chars().take(80).collect()
+    first_lines(t, 1)
+}
+
+fn first_lines(t: &str, n: usize) -> String {
+    let l: Vec<&str> = t.lines().take(n).map(str::trim).collect();
+    l.join(" ").chars().take(120).collect()
 }
 
 /// Every socket read for one daemon, on its own thread: each command's reply or its error.
@@ -455,7 +477,8 @@ fn read_daemon(
     if want.heap {
         match asok::call(sock, &asok::cmd("heap", &[("heapcmd", "stats")]), timeout) {
             Ok(t) if t.contains("Bytes in use by application") => r.heap = Some(t),
-            Ok(t) => r.errors.push(format!("heap stats: {}", first_line(&t))),
+            // "ERROR: (22) Invalid argument" and, on the next line, why ("unknown command prefix")
+            Ok(t) => r.errors.push(format!("heap stats: {}", first_lines(&t, 2))),
             Err(e) => r.errors.push(format!("heap stats: {}", e)),
         }
     }
@@ -488,10 +511,25 @@ fn read_daemon(
     }
     if want.kv {
         match asok::call(sock, &asok::cmd("dump_objectstore_kv_stats", &[]), timeout) {
-            Ok(t) => match serde_json::from_str::<serde_json::Value>(&t) {
-                Ok(v) => r.kv_stats = Some(v),
-                Err(_) => r.errors.push(format!("kv stats: {}", first_line(&t))),
-            },
+            // RocksDBStore::get_statistics writes one top-level object per rocksdb_collect_*
+            // switch that is on, back to back; the memory one is wanted. With rocksdb_perf off it
+            // writes a plain "error: ..." line instead.
+            Ok(t) => {
+                let found = serde_json::Deserializer::from_str(&t)
+                    .into_iter::<serde_json::Value>()
+                    .filter_map(Result::ok)
+                    .find(|v| {
+                        v.get("rocksdb_memtable_usage").is_some()
+                            || v.get("rocksdb_memtable_statistics").is_some()
+                    });
+                match found {
+                    Some(v) => r.kv_stats = Some(v),
+                    None if t.trim_start().starts_with('{') => r
+                        .errors
+                        .push("kv stats: no memory statistics in the reply".into()),
+                    None => r.errors.push(format!("kv stats: {}", first_line(&t))),
+                }
+            }
             Err(e) => r.errors.push(format!("kv stats: {}", e)),
         }
     }
@@ -555,11 +593,7 @@ mod tests {
         let here: Vec<&DaemonInfo> = c
             .known
             .iter()
-            .filter(|d| {
-                d.socket
-                    .as_deref()
-                    .map_or(false, |s| s.starts_with(&prefix))
-            })
+            .filter(|d| d.socket.as_deref().is_some_and(|s| s.starts_with(&prefix)))
             .collect();
         let names: Vec<String> = here.iter().map(|d| d.name.clone()).collect();
         let unreadable = here.iter().all(|d| d.unreadable.is_some());

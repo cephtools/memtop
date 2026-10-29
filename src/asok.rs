@@ -1,9 +1,10 @@
 //! Ceph admin socket client: send one JSON command, read the length-prefixed reply.
 //!
-//! Wire format (src/common/admin_socket.cc): the request is the command text followed by a NUL byte;
-//! the reply is a 4-byte big-endian length and that many bytes of payload. Plain-text commands are
-//! wrapped into {"prefix": ...} by old releases but rejected as "invalid json" by new ones, so every
-//! command here is sent as JSON.
+//! Wire format (src/common/admin_socket.cc): the request is a JSON object with "prefix" followed by
+//! a NUL byte or a newline; the reply is a 4-byte big-endian length and that many bytes of payload,
+//! "ERROR: (errno) text\nreason\n" when the command failed. The only non-JSON request the daemon
+//! accepts is the legacy 4-byte code (0, 1, 2) that it rewrites to a prefix itself; plain text is
+//! "invalid json". Every command here is sent as JSON.
 
 use std::io::{Read, Write};
 use std::os::unix::net::UnixStream;

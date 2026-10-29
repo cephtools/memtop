@@ -51,6 +51,11 @@ pub fn consent(sockets: &[(String, String)], timeout: Duration, yes: bool) -> bo
     for p in &plan {
         eprintln!("  {}: {} = true (now {})", p.daemon, p.var, p.before);
     }
+    eprintln!(
+        "  (takes effect at once; rocksdb_perf times every write batch, documented at 5-10 % of \
+         write performance, and RocksDB's thread-local perf level stays on after the restore \
+         until the OSD restarts)"
+    );
     let ok = yes || {
         eprint!("proceed? [y/N] ");
         let mut l = String::new();

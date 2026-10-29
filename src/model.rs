@@ -25,14 +25,22 @@ const WRITE_POOLS: &[&str] = &[
     "bluestore_txc",
     "bluestore_writing",
     "bluestore_writing_deferred",
-    "bluestore_fsck",
 ];
 const BLUEFS_POOLS: &[&str] = &["bluefs", "bluefs_file_reader", "bluefs_file_writer"];
 const PGLOG_POOLS: &[&str] = &["osd_pglog"];
+/// The MDS cache (CInode, CDentry, CDir, capabilities): MDCache::cache_size() is this pool's bytes,
+/// held against mds_cache_memory_limit.
+const MDS_CACHE_POOLS: &[&str] = &["mds_co"];
+/// The EC extent cache (ECExtentCache), bounded per op shard by ec_extent_cache_size.
+const EC_CACHE_POOLS: &[&str] = &["ec_extent_cache"];
+// bluestore_fsck (fsck scratch, empty at runtime), osd (PG objects, peering events), bloom_filter
+// and the unittest pools stay in "other mempools".
 /// The rows built from mempool groups; they must add up to dump_mempools' total.
 const MEMPOOL_ROWS: &[&str] = &[
     "cache:data",
     "cache:meta",
+    "cache:mds",
+    "cache:ec_extent",
     "nocache:pglog",
     "nocache:osdmap",
     "nocache:alloc",
@@ -125,7 +133,7 @@ fn is_ceph_daemon(p: &ProcInfo) -> bool {
 /// Daemon type from the executable name.
 pub fn daemon_kind(comm: &str) -> Option<&'static str> {
     Some(match comm {
-        "ceph-osd" => "osd",
+        "ceph-osd" | "crimson-osd" => "osd",
         "ceph-mon" => "mon",
         "ceph-mgr" => "mgr",
         "ceph-mds" => "mds",
@@ -140,7 +148,10 @@ pub fn daemon_kind(comm: &str) -> Option<&'static str> {
 }
 
 /// "osd.0" from a daemon's command line (-i 0 / --id 0 / -n osd.0 / --name osd.0), else None.
+/// radosgw, ceph-fuse, the mirrors and the exporter are client-type binaries (ceph_argparse.cc):
+/// `--id X` names them `client.X`, and `-i` is not an id for them.
 pub fn daemon_name_from_cmdline(kind: &str, cmdline: &[String]) -> Option<String> {
+    let client = !matches!(kind, "osd" | "mon" | "mgr" | "mds");
     let mut it = cmdline.iter().skip(1);
     while let Some(a) = it.next() {
         let (k, v) = match a.split_once('=') {
@@ -150,7 +161,14 @@ pub fn daemon_name_from_cmdline(kind: &str, cmdline: &[String]) -> Option<String
         match k {
             "-i" | "--id" => {
                 let v = v.or_else(|| it.next().cloned())?;
-                return Some(format!("{}.{}", kind, v));
+                if k == "-i" && client {
+                    continue;
+                }
+                return Some(if client {
+                    format!("client.{}", v)
+                } else {
+                    format!("{}.{}", kind, v)
+                });
             }
             "-n" | "--name" => {
                 let v = v.or_else(|| it.next().cloned())?;
@@ -475,6 +493,8 @@ pub struct CephSide {
     pub heap_in_use: Option<u64>,
     /// heap stats "Actual memory used"
     pub heap_actual: Option<u64>,
+    /// heap stats "Bytes in malloc metadata": in heap_actual, not in the tuner's mapped_bytes.
+    pub heap_metadata: Option<u64>,
     /// heap_in_use - mempool_total; None when negative (the inputs disagree).
     pub untracked: Option<u64>,
     /// heap_actual - heap_in_use
@@ -700,6 +720,8 @@ pub fn daemon_account(d: &RawDaemon, p: Option<&ProcInfo>, s: &RawSample) -> Dae
     let grouped: Vec<&str> = [
         DATA_CACHE_POOLS,
         META_CACHE_POOLS,
+        MDS_CACHE_POOLS,
+        EC_CACHE_POOLS,
         PGLOG_POOLS,
         OSDMAP_POOLS,
         ALLOC_POOLS,
@@ -708,10 +730,12 @@ pub fn daemon_account(d: &RawDaemon, p: Option<&ProcInfo>, s: &RawSample) -> Dae
         BUFFER_POOLS,
     ]
     .concat();
-    let is_bluestore = d
-        .perf
-        .as_ref()
-        .is_some_and(|p| p.get("bluestore-pricache").is_some());
+    // an OSD, or any daemon with a "bluestore" perf section; "bluestore-pricache" exists only with
+    // the autotuner on and a binned_lru kv cache, so the budgets below are conditional on it
+    let is_bluestore = d.kind == "osd"
+        || d.perf
+            .as_ref()
+            .is_some_and(|p| p.get("bluestore").is_some() || p.get("bluestore-pricache").is_some());
     let pricache = if is_bluestore {
         "bluestore-pricache"
     } else {
@@ -766,6 +790,53 @@ pub fn daemon_account(d: &RawDaemon, p: Option<&ProcInfo>, s: &RawSample) -> Dae
             "kv_onode",
         ));
     }
+    // a column family given its own block cache in bluestore_rocksdb_cfs gets its own
+    // rocksdb-cache-<cf> section (BinnedLRUCache); the default string has only O
+    if let Some(p) = perf {
+        let mut extra: Vec<(&String, &serde_json::Value)> = p
+            .as_object()
+            .into_iter()
+            .flatten()
+            .filter(|(sec, _)| {
+                sec.starts_with("rocksdb-cache-")
+                    && *sec != "rocksdb-cache-default"
+                    && *sec != "rocksdb-cache-O"
+            })
+            .collect();
+        extra.sort_by(|a, b| a.0.cmp(b.0));
+        for (sec, v) in extra {
+            let cf = &sec["rocksdb-cache-".len()..];
+            rows.push(
+                Row::new(
+                    &format!("cache:kv_{}", cf),
+                    &format!("cache: kv ({} block cache)", cf),
+                    v.get("usage").and_then(|x| x.as_u64()),
+                    &format!("{}.usage", sec),
+                )
+                .note("a column family with its own block cache (bluestore_rocksdb_cfs)"),
+            );
+        }
+    }
+    if d.kind == "mds" {
+        let r = group(
+            "cache:mds",
+            "cache: mds (inodes, dentries, dirs)",
+            MDS_CACHE_POOLS,
+        );
+        rows.push(match a.target {
+            Some((_, v)) => r.note(format!(
+                "limit {} (mds_cache_memory_limit): the MDS trims above it",
+                crate::units::bytes(Some(v))
+            )),
+            None => r,
+        });
+    }
+    if d.kind == "osd" {
+        rows.push(
+            group("cache:ec_extent", "cache: EC extents", EC_CACHE_POOLS)
+                .note("bounded per op shard by ec_extent_cache_size"),
+        );
+    }
     if let Some(p) = perf {
         for (sec, v) in p.as_object().into_iter().flatten() {
             if let Some(c) = sec.strip_prefix(&format!("{}:", pricache)) {
@@ -795,8 +866,9 @@ pub fn daemon_account(d: &RawDaemon, p: Option<&ProcInfo>, s: &RawSample) -> Dae
         }
     }
     // not under any cache
-    // dump_objectstore_kv_stats: the daemon flattens the "rocksdb_memtable_statistics" section in
-    // practice; accept both shapes. Values are strings.
+    // dump_objectstore_kv_stats: OSD::asok_command hands get_statistics a formatter with no
+    // enclosing section and the JSONFormatter drops the outermost name, so the keys are
+    // top-level; the nested shape is accepted too. Values are strings.
     let kv_num = |key: &str| -> Option<u64> {
         let k = d.kv_stats.as_ref()?;
         let v = k
@@ -821,8 +893,8 @@ pub fn daemon_account(d: &RawDaemon, p: Option<&ProcInfo>, s: &RawSample) -> Dae
             "dump_objectstore_kv_stats rocksdb_memtable_usage",
         )
         .optional();
-        // a daemon without the all-families fix answers for the default family: a few KiB while
-        // the live WAL, which the memtables cannot exceed by much, is large
+        // the figure is the default family's only (every release to date): a few KiB while the
+        // live WAL, which the memtables cannot exceed by much, is large
         let default_only = match (memtable, wal_alive) {
             (Some(m), Some(w)) => w > 64 << 20 && m < w / 50,
             _ => false,
@@ -832,7 +904,7 @@ pub fn daemon_account(d: &RawDaemon, p: Option<&ProcInfo>, s: &RawSample) -> Dae
         } else if default_only {
             r.note("default column family only (tiny next to the live WAL): the sharded families sit in 'heap, not in any mempool'")
         } else {
-            r.note("all column families with the GetAggregatedIntProperty fix in dump_objectstore_kv_stats; an older daemon reports the default one")
+            r.note("default column family only (RocksDBStore::get_statistics asks without a handle, v21.3.0 and main alike); the sharded families sit in 'heap, not in any mempool'")
         });
         let r = Row::new(
             "nocache:sst_readers",
@@ -846,7 +918,7 @@ pub fn daemon_account(d: &RawDaemon, p: Option<&ProcInfo>, s: &RawSample) -> Dae
         } else if default_only {
             r.note("default column family only")
         } else {
-            r.note("all column families only with the fix; see the memtables row")
+            r.note("default column family only; see the memtables row")
         });
         rows.push(
             Row::new(
@@ -879,7 +951,7 @@ pub fn daemon_account(d: &RawDaemon, p: Option<&ProcInfo>, s: &RawSample) -> Dae
             ),
         );
     }
-    rows.push(group("nocache:osdmap", "OSD maps", OSDMAP_POOLS));
+    rows.push(group("nocache:osdmap", "OSD and PG maps", OSDMAP_POOLS));
     if is_bluestore {
         rows.push(group("nocache:alloc", "BlueStore allocator", ALLOC_POOLS));
         rows.push(group(
@@ -1072,7 +1144,7 @@ fn heap_rows(
                 "heap:free",
                 "allocator: free lists and metadata",
                 Some(free),
-                "tcmalloc actual - in use",
+                "tcmalloc actual - in use, less the part not resident",
             )
             .note(format!(
                 "allocator_overhead {} = page heap {} central {} transfer {} thread {} meta {}; {} of it not resident",
@@ -1161,7 +1233,7 @@ fn sides(
     let heap_in_use = a.heap.as_ref().map(|h| h.in_use);
     let heap_actual = a.heap.as_ref().map(|h| h.actual);
     let rss = a.kernel.rss;
-    let cache_pools = sum_rows(&["cache:data", "cache:meta"]);
+    let cache_pools = sum_rows(&["cache:data", "cache:meta", "cache:mds", "cache:ec_extent"]);
     let untracked = Derived::sub(heap_in_use, mempool_total);
     let overhead = Derived::sub(heap_actual, heap_in_use);
     let non_heap = Derived::sub(rss, heap_actual);
@@ -1172,10 +1244,18 @@ fn sides(
         mempool_total,
         heap_in_use,
         heap_actual,
+        heap_metadata: a.heap.as_ref().map(|h| h.metadata),
         untracked: untracked.known(),
         allocator_overhead: overhead.known(),
         non_heap: non_heap.known(),
-        caches_used: sum_rows(&["cache:data", "cache:meta", "cache:kv", "cache:kv_onode"]),
+        caches_used: sum_rows(&[
+            "cache:data",
+            "cache:meta",
+            "cache:mds",
+            "cache:ec_extent",
+            "cache:kv",
+            "cache:kv_onode",
+        ]),
         mempool_caches: cache_pools,
         block_caches: sum_rows(&["cache:kv", "cache:kv_onode"]),
         uncached_mempool: match (mempool_total, cache_pools) {
@@ -1253,11 +1333,13 @@ fn sides(
             detail: format!("{} vs {}", b(Some(x)), b(Some(y))),
         });
     }
-    if let (Some(x), Some(y)) = (c.tuner_mapped, c.heap_actual) {
-        // the same tcmalloc counters, but the tuner samples them on its own timer (the cache
-        // resize interval), so its view lags the heap stats by up to a few seconds
+    if let (Some(x), Some(y), Some(md)) = (c.tuner_mapped, c.heap_actual, c.heap_metadata) {
+        // mapped_bytes is generic.heap_size - pageheap_unmapped_bytes: "actual" without
+        // tcmalloc's own metadata. The tuner samples on its own timer (the cache resize
+        // interval), so its view also lags the heap stats by up to a few seconds
+        let y = y.saturating_sub(md);
         m.push(Match {
-            what: "tuner mapped = tcmalloc actual".into(),
+            what: "tuner mapped = tcmalloc actual - metadata".into(),
             ok: close(x, y, 10, 8 << 20),
             hard: false,
             detail: format!(
@@ -1277,7 +1359,7 @@ fn sides(
             what: "configured target = tuner target".into(),
             ok: x == y,
             hard: false,
-            detail: if x == y { b(Some(x)) } else { format!("{} vs {}: the tuner was given another target (cgroup limit ratio, or a runtime change)", b(Some(x)), b(Some(y))) },
+            detail: if x == y { b(Some(x)) } else { format!("{} vs {}: a runtime change the tuner has not picked up yet (it re-reads the target on its next pass)", b(Some(x)), b(Some(y))) },
         });
     }
     if let (Some(cg), Some(an), Some(1)) = (k.cgroup_current, k.anon, k.cgroup_procs) {
@@ -1429,6 +1511,37 @@ mod tests {
             Some("mgr.x".into())
         );
         assert_eq!(daemon_name_from_cmdline("osd", &c(&["ceph-osd"])), None);
+        // client-type binaries: --id gives client.<id>, -i is a file argument, not an id
+        assert_eq!(
+            daemon_name_from_cmdline("rgw", &c(&["radosgw", "--id", "rgw.a"])),
+            Some("client.rgw.a".into())
+        );
+        assert_eq!(
+            daemon_name_from_cmdline("rgw", &c(&["radosgw", "-i", "x", "--id=a"])),
+            Some("client.a".into())
+        );
+        assert_eq!(daemon_kind("crimson-osd"), Some("osd"));
+    }
+
+    #[test]
+    fn the_mds_cache_pool_is_a_cache_row_held_against_its_limit() {
+        let (mut d, p, s) = osd_sample(false);
+        d.kind = "mds".into();
+        d.perf = None;
+        d.mempools = Some(serde_json::json!({"mempool": {"by_pool": {
+            "mds_co": {"items": 3, "bytes": 100}, "buffer_anon": {"items": 1, "bytes": 12},
+            "osd": {"items": 1, "bytes": 3}
+        }, "total": {"items": 5, "bytes": 115}}}));
+        d.config = [("mds_cache_memory_limit".to_string(), "4000".to_string())]
+            .into_iter()
+            .collect();
+        let a = daemon_account(&d, Some(&p), &s);
+        let by = |id: &str| a.rows.iter().find(|r| r.id == id).unwrap().clone();
+        assert_eq!(by("cache:mds").value, Some(100));
+        assert!(by("cache:mds").note.contains("mds_cache_memory_limit"));
+        assert_eq!(by("nocache:other").value, Some(3));
+        assert!(a.rows.iter().all(|r| r.id != "cache:ec_extent"));
+        assert_eq!(a.sum, Some(1000));
     }
 
     #[test]
@@ -1564,7 +1677,7 @@ mod tests {
             .iter()
             .find(|m| m.what == "configured target = tuner target")
             .unwrap();
-        assert!(!t.ok && !t.hard && t.detail.contains("cgroup"));
+        assert!(!t.ok && !t.hard && t.detail.contains("runtime change"));
         assert!(a2.problems.is_empty());
         // the tuner's heap view disagrees with tcmalloc: soft, explained
         let mut d3 = d.clone();
@@ -1574,7 +1687,7 @@ mod tests {
         let t = a3
             .matches
             .iter()
-            .find(|m| m.what == "tuner mapped = tcmalloc actual")
+            .find(|m| m.what == "tuner mapped = tcmalloc actual - metadata")
             .unwrap();
         assert!(!t.ok && !t.hard && t.detail.contains("stale"), "{:?}", t);
         assert!(a3.problems.is_empty());
@@ -1627,7 +1740,7 @@ mod tests {
             .find(|r| r.id == "nocache:memtables")
             .unwrap()
             .note;
-        assert!(n.contains("all column families with the"), "{}", n);
+        assert!(n.contains("default column family only"), "{}", n);
     }
 
     #[test]

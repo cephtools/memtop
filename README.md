@@ -71,23 +71,26 @@ buffers and vmalloc are shown as reference rows: real, but inside slab and "othe
 
 | row | source |
 |---|---|
-| cache: data | mempool `bluestore_cache_data` |
+| cache: data | mempool `bluestore_cache_data`; before commit 96bb533039b (2026-08-26; not in v21.3.0) it also holds the data of writes still in flight, so under write load it runs above the tuner's usage and "in-flight writes" holds only list nodes |
 | cache: meta | the eight mempools BlueStore's meta cache counts (`BlueStore.h` `MetaCache::_get_used_bytes`) |
-| cache: kv, kv_onode | `rocksdb-cache-default.usage`, `rocksdb-cache-O.usage` (perf dump) |
+| cache: kv, kv_onode | `rocksdb-cache-default.usage`, `rocksdb-cache-O.usage` (perf dump); a column family given its own cache in `bluestore_rocksdb_cfs` gets a `cache: kv (<cf> block cache)` row from its `rocksdb-cache-<cf>` section |
+| cache: mds | mempool `mds_co` (inodes, dentries, dirs): what `MDCache::cache_size()` holds against `mds_cache_memory_limit` |
+| cache: EC extents | mempool `ec_extent_cache`, bounded per op shard by `ec_extent_cache_size` |
 | budget per cache | `*-pricache:<cache>.committed_bytes` |
 | RocksDB memtables | `dump_objectstore_kv_stats` `rocksdb_memtable_usage`: needs `rocksdb_perf` and `rocksdb_collect_memory_stats` (`--enable-kv-stats`); see the limits below |
 | RocksDB table readers outside the block cache | the same dump, `rocksdb_index_filter_blocks_usage` (`rocksdb.estimate-table-readers-mem`): index and filter blocks count here only when they are not in the block cache |
 | RocksDB WAL alive (reference) | `bluefs files list`, the sizes under `db.wal/`: every write still in a memtable is in a live WAL, and the memtables run about 10 % above it; a WAL file lives until every column family flushed it |
 | PG log beyond the mempool count (reference, estimate) | `osd_pglog` items and bytes solved into entries and dups; 233 B per entry and 74 B per dup over the counted 552 and 104, measured with a heap profile: index maps, list nodes, size-class rounding |
-| PG log, OSD maps, allocator, in-flight writes, BlueFS, buffers, other | mempools by group (`--raw` shows the keys) |
+| PG log, OSD and PG maps, allocator, in-flight writes, BlueFS, buffers, other | mempools by group (`--raw` shows the keys); `pgmap` is the mon's and mgr's PG map, `other` holds `osd` (PG objects, peering events), `bloom_filter` and fsck scratch |
 | heap, not in any mempool | tcmalloc "in use by application" minus the rows above |
-| allocator: free lists and metadata | tcmalloc "actual" minus "in use" |
-| anon outside the heap | `RssAnon` minus the resident heap |
+| allocator: free lists and metadata | tcmalloc "actual" minus "in use", less the pages held but not resident |
+| anon outside heap (stacks, other allocators) | `RssAnon` minus the resident heap |
 | file-backed, shared memory | `RssFile`, `RssShmem` |
 
 The daemon summary has two sections that must agree. **kernel**: RSS split into anon, file and
 shmem, VmHWM, threads, and the cgroup's current, max and peak. **ceph**: the configured target
-(and the tuner's, when it differs), and
+(and the tuner's, when it differs: `config get` already includes the cgroup ratio and cephadm's
+per-host value, so they differ only until the tuner's next pass after a runtime change), and
 
 ```
 mempool_total      = dump_mempools .mempool.total.bytes   (caches + un-cached)
@@ -100,8 +103,9 @@ non_heap           = rss - heap_actual
 
 The **match** line checks the two sides against each other: rss = mempool_total + untracked +
 allocator_overhead + non_heap, and the mempool rows equal the dump's total (hard: a failure is a
-problem and fails the sample's checks); the tuner's mapped bytes equal tcmalloc's actual within 10 % (the
-tuner samples on its own timer), the configured target equals the tuner's, and a dedicated cgroup
+problem and fails the sample's checks); the tuner's mapped bytes equal tcmalloc's actual less its
+metadata within 10 % (`mapped_bytes` is `generic.heap_size - tcmalloc.pageheap_unmapped_bytes`, and
+the tuner samples on its own timer), the configured target equals the tuner's, and a dedicated cgroup
 charges at least the anon memory (soft: a difference is explained). A derived figure that comes out negative is `n/a` and the match says
 which input is off, e.g. heap pages held but not resident.
 
@@ -134,9 +138,11 @@ rss
 ```
 
 Aggregates show the current value only, since peaks do not add up; leaves carry the rate, the
-growth streak and the peaks. Rows marked `?` are residuals, `ref` rows are not summed. Without tcmalloc the heap rows merge
-into "heap, not in any mempool, plus allocator free lists" from the priority cache's
-`mapped_bytes`; without that, into "anon, unattributed". A derived value that comes out negative
+growth streak and the peaks. Rows marked `?` are residuals, `ref` rows are not summed. Without heap
+stats (`--no-heap`, or a socket too slow for them) on a tcmalloc build the heap rows merge into
+"heap not in any mempool + allocator free lists" from the priority cache's `mapped_bytes`; a build
+without tcmalloc reports `mapped_bytes` 0 and collapses, like a daemon without the tuner, into
+"anon, unattributed". A derived value that comes out negative
 is shown as `n/a` with the suspect source named; the level then does not reconcile and the checks
 say so.
 
@@ -179,7 +185,10 @@ for neither rates nor peaks. Rates divide by the measured interval.
 Read-only, except `--enable-kv-stats`, which sets `rocksdb_perf` and
 `rocksdb_collect_memory_stats` on OSDs that lack them after asking (`--yes` skips the question),
 and restores them on exit, on SIGINT/SIGTERM/SIGHUP, and on a panic. Switches already on are left
-alone. The consent covers the run: an OSD that restarts or becomes reachable later gets the switches
+alone. Both take effect at once (`RocksDBStore` reads them on every call, no restart). `rocksdb_perf`
+times every write batch, which Ceph documents at 5-10 % of write performance; restoring it stops
+Ceph's timers, but RocksDB's thread-local perf level stays raised on the kv-sync thread until the
+OSD restarts. The consent covers the run: an OSD that restarts or becomes reachable later gets the switches
 too. An n/a memtable row says why it is unknown: the switches are off on that OSD, the read failed,
 or it was not requested. The per-PG pglog view (`g` on an OSD) shells out to `ceph pg dump pgs` with the daemon's
 own conf (`-c`), `--conf`, or `$CEPH_CONF`, and reads "unavailable" when that fails.
@@ -190,8 +199,8 @@ own conf (`-c`), `--conf`, or `$CEPH_CONF`, and reads "unavailable" when that fa
 mon/mgr/4 OSDs, main 21.3.0 dev build with tcmalloc, on c28) and `vstart-write` (23 samples
 under 4K random writes, RocksDB statistics on). The replay tests check that both identities hold
 on every sample, that two replays are identical, that the reported peak is the sample maximum
-with its timestamp, that a restart clears peaks and rates, that a build without heap statistics
-still adds up (derived from the idle fixture by dropping the heap text), that a degraded sample is
+with its timestamp, that a restart clears peaks and rates, that a tcmalloc build whose heap stats
+were not read still adds up (derived from the idle fixture by dropping the heap text), that a degraded sample is
 shown but not tracked, and that unknown values stay blank.
 
 `scripts/tui-test.py <binary> <args>` drives the terminal UI in a pty through a small screen model:
@@ -221,15 +230,19 @@ from 0 to 290 MiB under random reads, and RSS followed, with both kinds of peak 
 
 ## Known limits
 
-* Ceph daemons without the all-families fix report RocksDB memtable and SST-reader usage for the
-  default column family only (`RocksDBStore::get_statistics` called `DB::GetProperty` without a
-  column family handle): the figure stayed at 2 KiB through a 10 min write load on c28 while the
-  live WAL held 954 MiB. On such an OSD the memtables of the O, L, P and M families, hundreds of MiB
-  under write load, are inside "heap, not in any mempool" (and in `untracked`); the memtables row
-  says so when its figure is tiny next to the live WAL. The fix (`GetAggregatedIntProperty`) is a
-  four-line change to `RocksDBStore::get_statistics`.
-* The mon's full/inc osdmap caches report their size but their bytes live in the mempool rows, so
-  they are shown as reference rows.
+* Every Ceph release to date (v21.3.0 and main as of October 2026) reports RocksDB memtable and
+  SST-reader usage for the default column family only (`RocksDBStore::get_statistics` calls
+  `DB::GetProperty` without a column family handle): the figure stayed at 2 KiB through a 10 min
+  write load on c28 while the live WAL held 954 MiB. The memtables of the O, L, P and M families,
+  hundreds of MiB under write load, are inside "heap, not in any mempool" (and in `untracked`);
+  the memtables row says so. A fix (`GetAggregatedIntProperty`) is a four-line change to
+  `RocksDBStore::get_statistics`.
+* The mon's full/inc osdmap caches have no usage counter: their rows show what the tuner assigned
+  them (`pri1_bytes`, capped by the budget), and their bytes, encoded maps read from the store,
+  sit in the buffers row (`buffer_anon`), so they are shown as reference rows.
+* A daemon that refuses `heap stats` (a mgr or rgw of v21.3.0, or an OSD still starting) is asked
+  again after 10 s, then at doubling intervals up to 10 min: each refused request is a line in its
+  log.
 * A process's `RssAnon` is attributed whole; THP and page-table sharing are not corrected.
 * The rows of one sample come from reads up to `--max-spread` apart (/proc, then the sockets), so a
   transient that lasts one sample can land in the wrong row: an OSD's RSS spike of 130 MiB at the
