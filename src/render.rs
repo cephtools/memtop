@@ -671,10 +671,16 @@ fn daemon_tree(d: &DaemonView) -> Vec<Node> {
     if let Some(n) = Node::leaf_if(rows, "cache:meta", "meta cache (onodes, extents, blobs)") {
         cache_pools.push(n);
     }
+    if let Some(n) = Node::leaf_if(rows, "cache:mds", "mds cache (inodes, dentries, dirs)") {
+        cache_pools.push(n);
+    }
+    if let Some(n) = Node::leaf_if(rows, "cache:ec_extent", "EC extent cache") {
+        cache_pools.push(n);
+    }
     let mut uncached = Vec::new();
     for (id, label) in [
         ("nocache:pglog", "PG log (entries and dups)"),
-        ("nocache:osdmap", "OSD maps"),
+        ("nocache:osdmap", "OSD and PG maps"),
         ("nocache:alloc", "BlueStore allocator"),
         ("nocache:writes", "BlueStore in-flight writes"),
         ("nocache:bluefs", "BlueFS"),
@@ -691,7 +697,7 @@ fn daemon_tree(d: &DaemonView) -> Vec<Node> {
         mempools.push(Node::agg(
             "caches",
             v,
-            "under the data and meta priority caches",
+            "the mempools a cache limit bounds: the data and meta priority caches, the mds cache",
             cache_pools,
         ));
     }
@@ -710,6 +716,14 @@ fn daemon_tree(d: &DaemonView) -> Vec<Node> {
     }
     if let Some(n) = Node::leaf_if(rows, "cache:kv_onode", "kv_onode block cache") {
         kv.push(n);
+    }
+    // column families with their own block cache (bluestore_rocksdb_cfs)
+    for r in rows
+        .iter()
+        .filter(|r| r.row.id.starts_with("cache:kv_") && r.row.id != "cache:kv_onode")
+    {
+        let cf = &r.row.id["cache:kv_".len()..];
+        kv.push(Node::leaf(rows, &r.row.id, &format!("{} block cache", cf)));
     }
     let mut untracked = Vec::new();
     if !kv.is_empty() {
@@ -823,6 +837,20 @@ fn daemon_tree(d: &DaemonView) -> Vec<Node> {
     }
     if let Some(n) = Node::leaf_if(rows, "rss:shmem", "shared memory") {
         top.push(n);
+    }
+    // a row the tree has no place for would silently drop out of the sums: show it at the top
+    let mut placed = Vec::new();
+    for n in &top {
+        leaf_ids(n, &mut placed);
+    }
+    let stray: Vec<Node> = rows
+        .iter()
+        .filter(|r| !r.row.reference && !placed.contains(&r.row.id))
+        .map(|r| Node::leaf(rows, &r.row.id, &r.row.label))
+        .collect();
+    if !stray.is_empty() {
+        let v = sum_nodes(&stray);
+        top.push(Node::agg("rows not placed in the tree", v, "", stray));
     }
     top
 }

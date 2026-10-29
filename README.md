@@ -138,7 +138,9 @@ rss
 ```
 
 Aggregates show the current value only, since peaks do not add up; leaves carry the rate, the
-growth streak and the peaks. Rows marked `?` are residuals, `ref` rows are not summed. Without heap
+growth streak and the peaks. Rows marked `?` are residuals, `ref` rows are not summed. The four
+caches the tuner sizes (data, meta, kv, kv_onode), and the tree rows made only of them, are drawn
+in cyan in the terminal UI. Without heap
 stats (`--no-heap`, or a socket too slow for them) on a tcmalloc build the heap rows merge into
 "heap not in any mempool + allocator free lists" from the priority cache's `mapped_bytes`; a build
 without tcmalloc reports `mapped_bytes` 0 and collapses, like a daemon without the tuner, into

@@ -97,6 +97,20 @@ step(b"\x1b", 0.8)
 check("Esc back to the node screen", len(scr.corners()) == 3, str(scr.corners()))
 step(b"\r", 0.8)
 check("the split is kept when reopening", scr.corners() == [0, 3], str(scr.corners()))
+# the four tuner caches are drawn in cyan: open an OSD (the daemons after the current one)
+step(b"\x1b", 0.5)
+found = False
+for _ in range(8):
+    step(b"j", 0.2); step(b"\r", 0.8)
+    if "osd." in scr.line(0):
+        found = True; break
+    step(b"\x1b", 0.5)
+check("an OSD screen opened", found, scr.line(0)[:40])
+i = scr.raw.rfind(b"data cache (BlueStore")   # the tree leaf of cache:data
+before = scr.raw[max(0, i - 96):i] if i > 0 else b""
+# crossterm writes the colour as "\x1b[36m", "\x1b[96m" or "\x1b[38;5;6m", possibly with more SGR parameters around it
+cyan = re.compile(rb"\x1b\[(?:[0-9;]*;)?(?:36|96|38;5;6)(?:;[0-9;]*)?m")
+check("the cache rows are drawn in cyan", i > 0 and cyan.search(before) is not None, repr(before[-60:]))
 print("---- screen after the last drag ----")
 for y in range(0, min(ROWS, 14)): print(f"{y:2} {scr.line(y)[:120]}")
 step(b"q", 1.0)

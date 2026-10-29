@@ -8,7 +8,7 @@ use ratatui::crossterm::event::{
     KeyCode, KeyEvent, KeyEventKind, KeyModifiers, MouseButton, MouseEvent, MouseEventKind,
 };
 use ratatui::layout::{Constraint, Layout, Rect};
-use ratatui::style::{Modifier, Style};
+use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::Line;
 use ratatui::widgets::{Block, Cell, Paragraph, Row, Table as RTable, TableState, Wrap};
 use ratatui::Frame;
@@ -293,6 +293,15 @@ impl Ui {
     }
 }
 
+/// The four caches the tuner sizes (bluestore-pricache data, meta, kv, kv_onode; the mon's kv).
+const TUNER_CACHES: [&str; 4] = ["cache:data", "cache:meta", "cache:kv", "cache:kv_onode"];
+
+/// A table row that stands for the tuner's caches and nothing else: a cache leaf, or a tree row
+/// whose leaves are all caches. Drawn in colour so the tuned memory stands out from the rest.
+fn is_tuner_cache(r: &render::TableRow) -> bool {
+    !r.ids.is_empty() && r.ids.iter().all(|id| TUNER_CACHES.contains(&id.as_str()))
+}
+
 fn table_widget(t: &Table) -> RTable<'static> {
     let header = Row::new(
         t.header
@@ -306,6 +315,9 @@ fn table_widget(t: &Table) -> RTable<'static> {
         .iter()
         .map(|r| {
             let mut st = Style::default();
+            if is_tuner_cache(r) {
+                st = st.fg(Color::Cyan);
+            }
             if r.dim {
                 st = st.add_modifier(Modifier::DIM);
             }
@@ -545,7 +557,8 @@ fn draw_help(f: &mut Frame, area: Rect) {
     let text = "ceph-memtop: where is this node's memory?\n\n\
         node view: rows add up to MemTotal. Ceph daemons are charged their anonymous memory; their file-backed\n\
         pages are in the page cache row. 'ref' rows overlap others and are not summed; '?' rows are residuals.\n\
-        daemon view: rows add up to the daemon's RSS. Caches are named by the budget they charge; the rest by source.\n\n\
+        daemon view: rows add up to the daemon's RSS. Caches are named by the budget they charge; the rest by source.\n\
+        cyan rows are the four caches the tuner sizes (data, meta, kv, kv_onode) and the tree rows made only of them.\n\n\
         peak:seen   = the largest value this tool has sampled since start/reset/restart; a spike between samples is missed\n\
         peak:kernel = VmHWM / memory.peak, recorded by the kernel; correct regardless of when the tool started\n\
         peaks never add up: the parts peak at different moments. Only current values reconcile.\n\n\
