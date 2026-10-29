@@ -39,6 +39,34 @@ pub fn plan(sockets: &[(String, String)], timeout: Duration) -> Vec<Change> {
     out
 }
 
+/// Say what --enable-kv-stats would change on these OSD sockets, ask unless `yes`, and apply it
+/// on consent. The answer covers the run: an OSD that restarts or appears later gets the switches
+/// too. True when nothing needs changing.
+pub fn consent(sockets: &[(String, String)], timeout: Duration, yes: bool) -> bool {
+    let plan = plan(sockets, timeout);
+    if plan.is_empty() {
+        return true;
+    }
+    eprintln!("--enable-kv-stats would set, until exit (and again on an OSD that restarts):");
+    for p in &plan {
+        eprintln!("  {}: {} = true (now {})", p.daemon, p.var, p.before);
+    }
+    let ok = yes || {
+        eprint!("proceed? [y/N] ");
+        let mut l = String::new();
+        std::io::stdin().read_line(&mut l).ok();
+        l.trim().eq_ignore_ascii_case("y")
+    };
+    if ok {
+        for e in apply(&plan, timeout) {
+            eprintln!("{}", e);
+        }
+    } else {
+        eprintln!("left as found; memtable rows will read n/a");
+    }
+    ok
+}
+
 pub fn apply(changes: &[Change], timeout: Duration) -> Vec<String> {
     let mut errors = Vec::new();
     for c in changes {

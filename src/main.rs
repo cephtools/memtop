@@ -15,12 +15,9 @@ mod ui;
 mod units;
 
 use clap::Parser;
-use ratatui::crossterm::event::{
-    self, DisableMouseCapture, EnableMouseCapture, Event, KeyCode, KeyEventKind, KeyModifiers,
-    MouseButton, MouseEventKind,
-};
+use ratatui::crossterm::event::{self, DisableMouseCapture, EnableMouseCapture, Event};
 use ratatui::crossterm::ExecutableCommand;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -99,31 +96,6 @@ fn tui_restore() {
     ratatui::restore();
 }
 
-/// The rows as displayed on the current screen: the cursor, the keys and the mouse act on them.
-fn shown_rows(u: &ui::Ui, view: &Option<state::View>) -> Vec<Vec<String>> {
-    match (&u.screen, view) {
-        (ui::Screen::Node, Some(v)) => render::daemons_table(v, u.opts)
-            .rows
-            .into_iter()
-            .map(|r| r.ids)
-            .collect(),
-        (ui::Screen::Daemon(n), Some(v)) => v
-            .daemons
-            .iter()
-            .find(|d| &d.account.name == n)
-            .map(|d| {
-                if u.opts.tree {
-                    render::daemon_tree_table(d, u.opts)
-                } else {
-                    render::daemon_table(d, u.opts)
-                }
-            })
-            .map(|t| t.rows.into_iter().map(|r| r.ids).collect())
-            .unwrap_or_default(),
-        _ => Vec::new(),
-    }
-}
-
 enum Source {
     /// Samples arrive from the collector's thread, paced at the interval.
     Live(std::sync::mpsc::Receiver<raw::RawSample>),
@@ -152,6 +124,7 @@ impl Source {
     }
 }
 
+/// The collector on its own thread, one sample per interval.
 fn start_sampler(
     mut c: collect::Collector,
     interval: Duration,
@@ -172,6 +145,56 @@ fn start_sampler(
         }
     });
     rx
+}
+
+/// The host as the source: discover the daemons, settle the kv-stats consent, start sampling.
+fn live_source(cli: &Cli, interval: Duration, stop: Arc<AtomicBool>) -> Source {
+    let timeout = Duration::from_millis(cli.timeout);
+    let mut c = collect::Collector::new(collect::Options {
+        asok: cli.asok.clone(),
+        asok_dirs: cli.asok_dir.clone(),
+        timeout,
+        budget: Duration::from_millis(
+            (interval.as_millis() as u64 * 3 / 4).clamp(300, cli.timeout.max(300) * 2),
+        ),
+        kv_stats: cli.enable_kv_stats,
+        kv_consented: false,
+        heap: !cli.no_heap,
+    });
+    let root = Path::new("/");
+    c.discover(&proc::list_processes(root), &proc::asok_sockets(root));
+    if cli.enable_kv_stats {
+        let osds: Vec<(String, String)> = c
+            .known
+            .iter()
+            .filter(|d| d.kind == "osd" && d.unreadable.is_none())
+            .filter_map(|d| d.socket.clone().map(|s| (d.name.clone(), s)))
+            .collect();
+        c.opts.kv_consented = kvstats::consent(&osds, timeout, cli.yes);
+    }
+    Source::Live(start_sampler(c, interval, stop))
+}
+
+fn replay_source(dir: &Path) -> Source {
+    match fixture::load(dir) {
+        Ok(v) if !v.is_empty() => Source::Replay(v, 0),
+        Ok(_) => {
+            eprintln!("no samples in {}", dir.display());
+            std::process::exit(2);
+        }
+        Err(e) => {
+            eprintln!("replay: {}", e);
+            std::process::exit(2);
+        }
+    }
+}
+
+/// Write the sample as a fixture when --record asks for it; the error text if that failed.
+fn record(cli: &Cli, s: &raw::RawSample) -> Option<String> {
+    let dir = cli.record.as_ref()?;
+    fixture::record(dir, &fixture::lean(s))
+        .err()
+        .map(|e| format!("record: {}", e))
 }
 
 fn plain_text(v: &state::View, o: render::Opts) -> String {
@@ -201,154 +224,60 @@ fn plain_text(v: &state::View, o: render::Opts) -> String {
     s
 }
 
-fn main() {
-    let cli = Cli::parse();
-    let interval = Duration::from_secs_f64(cli.interval.max(0.2));
-    let max_spread = cli
-        .max_spread
-        .unwrap_or((interval.as_millis() / 2).max(200) as u64);
-    let stop = Arc::new(AtomicBool::new(false));
-    for sig in [
-        signal_hook::consts::SIGINT,
-        signal_hook::consts::SIGTERM,
-        signal_hook::consts::SIGHUP,
-    ] {
-        let _ = signal_hook::flag::register(sig, stop.clone());
+/// --once, --plain, --json: text or JSON per sample until the source ends or a signal arrives.
+/// Returns (samples checked, samples that failed their checks).
+fn run_plain(
+    cli: &Cli,
+    source: &mut Source,
+    st: &mut state::State,
+    opts: render::Opts,
+    stop: &AtomicBool,
+) -> (usize, usize) {
+    let (mut checked, mut failed) = (0usize, 0usize);
+    while !stop.load(Ordering::SeqCst) {
+        let Some(s) = source.next() else {
+            break;
+        };
+        if let Some(e) = record(cli, &s) {
+            eprintln!("{}", e);
+        }
+        let v = st.ingest(&s);
+        checked += 1;
+        if !v.checks.ok {
+            failed += 1;
+        }
+        if cli.json {
+            println!("{}", serde_json::to_string(&v).unwrap());
+        } else {
+            print!("{}", plain_text(&v, opts));
+        }
+        if cli.once {
+            break;
+        }
     }
-    let tui = !(cli.once || cli.json || cli.plain);
-    {
-        let prev = std::panic::take_hook();
-        std::panic::set_hook(Box::new(move |info| {
-            if tui {
-                tui_restore();
-            }
-            let errs = kvstats::restore_all();
-            for e in errs {
-                eprintln!("restore: {}", e);
-            }
-            prev(info);
-        }));
-    }
-    let mut source = match &cli.replay {
-        Some(dir) => match fixture::load(dir) {
-            Ok(v) if !v.is_empty() => Source::Replay(v, 0),
-            Ok(_) => {
-                eprintln!("no samples in {}", dir.display());
-                std::process::exit(2);
-            }
-            Err(e) => {
-                eprintln!("replay: {}", e);
-                std::process::exit(2);
-            }
-        },
-        None => {
-            let opts = collect::Options {
-                asok: cli.asok.clone(),
-                asok_dirs: cli.asok_dir.clone(),
-                timeout: Duration::from_millis(cli.timeout),
-                budget: Duration::from_millis(
-                    (interval.as_millis() as u64 * 3 / 4).clamp(300, cli.timeout.max(300) * 2),
-                ),
-                kv_stats: cli.enable_kv_stats,
-                kv_consented: false,
-                heap: !cli.no_heap,
-            };
-            let mut c = collect::Collector::new(opts);
-            let procs = proc::list_processes(std::path::Path::new("/"));
-            let net = proc::asok_sockets(std::path::Path::new("/"));
-            c.discover(&procs, &net);
-            if cli.enable_kv_stats {
-                let socks: Vec<(String, String)> = c
-                    .known
-                    .iter()
-                    .filter(|d| d.kind == "osd" && d.unreadable.is_none())
-                    .filter_map(|d| d.socket.clone().map(|s| (d.name.clone(), s)))
-                    .collect();
-                let plan = kvstats::plan(&socks, Duration::from_millis(cli.timeout));
-                // the consent covers the run: an OSD that restarts or appears later gets the
-                // switches too, so the memtable rows do not go n/a silently
-                let mut ok = true;
-                if !plan.is_empty() {
-                    eprintln!("--enable-kv-stats would set, until exit (and again on an OSD that restarts):");
-                    for p in &plan {
-                        eprintln!("  {}: {} = true (now {})", p.daemon, p.var, p.before);
-                    }
-                    ok = cli.yes || {
-                        eprint!("proceed? [y/N] ");
-                        let mut l = String::new();
-                        std::io::stdin().read_line(&mut l).ok();
-                        l.trim().eq_ignore_ascii_case("y")
-                    };
-                    if ok {
-                        for e in kvstats::apply(&plan, Duration::from_millis(cli.timeout)) {
-                            eprintln!("{}", e);
-                        }
-                    } else {
-                        eprintln!("left as found; memtable rows will read n/a");
-                    }
-                }
-                c.opts.kv_consented = ok;
-            }
-            Source::Live(start_sampler(c, interval, stop.clone()))
-        }
-    };
-    let mut st = state::State::new(max_spread, cli.tolerance);
-    let opts = render::Opts {
-        peaks: !cli.no_peaks,
-        raw: cli.raw,
-        tree: !cli.flat,
-    };
-    let mut failed = 0usize;
-    let mut checked = 0usize;
-    if !tui {
-        loop {
-            if stop.load(Ordering::SeqCst) {
-                break;
-            }
-            let Some(s) = source.next() else {
-                break;
-            };
-            if let Some(dir) = &cli.record {
-                if let Err(e) = fixture::record(dir, &fixture::lean(&s)) {
-                    eprintln!("record: {}", e);
-                }
-            }
-            let v = st.ingest(&s);
-            checked += 1;
-            if !v.checks.ok {
-                failed += 1;
-            }
-            if cli.json {
-                println!("{}", serde_json::to_string(&v).unwrap());
-            } else {
-                print!("{}", plain_text(&v, opts));
-            }
-            if cli.once {
-                break;
-            }
-        }
-        for e in kvstats::restore_all() {
-            eprintln!("restore: {}", e);
-        }
-        if failed > 0 {
-            eprintln!("{} of {} samples failed their checks", failed, checked);
-            std::process::exit(1);
-        }
-        return;
-    }
-    // the terminal UI
+    (checked, failed)
+}
+
+/// The terminal UI: draw when the view or the UI state changed, take a sample when one is due
+/// (a replay is paced at the interval), and hand every key and mouse event to the UI.
+fn run_tui(
+    cli: &Cli,
+    source: &mut Source,
+    st: &mut state::State,
+    opts: render::Opts,
+    stop: &AtomicBool,
+    interval: Duration,
+) {
     let mut term = ratatui::init();
     let _ = std::io::stdout().execute(EnableMouseCapture);
     let mut u = ui::Ui::new(opts);
+    u.pg_conf = cli.conf.clone();
+    u.pg_keyring = cli.keyring.clone();
     let mut view: Option<state::View> = None;
     let mut next_tick = Instant::now();
     let replay_pace = cli.replay.is_some();
-    // the screen is drawn when the view or the UI state changed, not on every poll
     let mut dirty = true;
-    'outer: loop {
-        if stop.load(Ordering::SeqCst) {
-            break;
-        }
+    while !stop.load(Ordering::SeqCst) {
         if let Some(rx) = &u.pglog_rx {
             if let Ok(r) = rx.try_recv() {
                 u.pglog = Some(r);
@@ -357,13 +286,10 @@ fn main() {
                 dirty = true;
             }
         }
-        let due = !replay_pace || Instant::now() >= next_tick;
-        if due {
+        if !replay_pace || Instant::now() >= next_tick {
             if let Some(s) = source.try_next() {
-                if let Some(dir) = &cli.record {
-                    if let Err(e) = fixture::record(dir, &fixture::lean(&s)) {
-                        u.message = format!("record: {}", e);
-                    }
+                if let Some(e) = record(cli, &s) {
+                    u.message = e;
                 }
                 view = Some(st.ingest(&s));
                 next_tick = Instant::now() + interval;
@@ -387,178 +313,74 @@ fn main() {
                 .saturating_duration_since(Instant::now())
                 .min(Duration::from_millis(100))
         };
-        if event::poll(wait).unwrap_or(false) {
-            let ev = event::read();
-            if let Ok(Event::Resize(..)) = ev {
-                dirty = true;
-                continue;
-            }
-            if let Ok(Event::Mouse(m)) = ev {
-                match m.kind {
-                    MouseEventKind::Down(MouseButton::Left) => {
-                        if u.help {
-                            u.help = false;
-                            dirty = true;
-                            continue;
-                        }
-                        let Some(p) = u.panes else { continue };
-                        if let Some(div) = p.divider {
-                            // either edge of the border between the two sections grabs it
-                            if m.row == div || m.row == div + 1 {
-                                u.drag = Some(m.row - div);
-                                continue;
-                            }
-                        }
-                        if let Some(i) = p.row_at(m.row) {
-                            if i < shown_rows(&u, &view).len() {
-                                u.cursor = i;
-                                dirty = true;
-                            }
-                        }
-                    }
-                    MouseEventKind::Drag(MouseButton::Left) => {
-                        if let (Some(off), Some(p)) = (u.drag, u.panes) {
-                            // the grabbed border follows the pointer: the summary ends there
-                            let height =
-                                (m.row.saturating_sub(off) + 1).saturating_sub(p.summary.y);
-                            if u.split != Some(height) {
-                                u.split = Some(height);
-                                dirty = true;
-                            }
-                        }
-                    }
-                    MouseEventKind::Up(_) => u.drag = None,
-                    MouseEventKind::ScrollDown => {
-                        let n = shown_rows(&u, &view).len();
-                        u.cursor = (u.cursor + 1).min(n.saturating_sub(1));
-                        dirty = true;
-                    }
-                    MouseEventKind::ScrollUp => {
-                        u.cursor = u.cursor.saturating_sub(1);
-                        dirty = true;
-                    }
-                    _ => {}
-                }
-                continue;
-            }
-            if let Ok(Event::Key(k)) = ev {
-                if k.kind != KeyEventKind::Press {
-                    continue;
-                }
-                dirty = true;
-                if u.help {
-                    u.help = false;
-                    continue;
-                }
-                let shown = shown_rows(&u, &view);
-                let rows_len = shown.len();
-                match (k.code, k.modifiers) {
-                    (KeyCode::Char('q'), _) | (KeyCode::Char('c'), KeyModifiers::CONTROL) => {
-                        break 'outer
-                    }
-                    (KeyCode::Char('?'), _) | (KeyCode::Char('h'), _) => u.help = true,
-                    (KeyCode::Down, _) | (KeyCode::Char('j'), _) => {
-                        u.cursor = (u.cursor + 1).min(rows_len.saturating_sub(1))
-                    }
-                    (KeyCode::Up, _) | (KeyCode::Char('k'), _) => {
-                        u.cursor = u.cursor.saturating_sub(1)
-                    }
-                    (KeyCode::Enter, _) => {
-                        if let (ui::Screen::Node, Some(v)) = (&u.screen, &view) {
-                            if let Some(d) = v.daemons.get(u.cursor) {
-                                u.screen = ui::Screen::Daemon(d.account.name.clone());
-                                u.cursor = 0;
-                            }
-                        }
-                    }
-                    (KeyCode::Esc, _) | (KeyCode::Backspace, _) => {
-                        if u.pglog.is_some() {
-                            u.pglog = None;
-                        } else if let ui::Screen::Daemon(n) = &u.screen {
-                            let n = n.clone();
-                            u.screen = ui::Screen::Node;
-                            u.cursor = view
-                                .as_ref()
-                                .and_then(|v| v.daemons.iter().position(|d| d.account.name == n))
-                                .unwrap_or(0);
-                        }
-                    }
-                    (KeyCode::Char('-'), _) => {
-                        if let Some(p) = u.panes.filter(|p| p.divider.is_some()) {
-                            u.split = Some(p.summary.height.saturating_sub(1));
-                        }
-                    }
-                    (KeyCode::Char('+'), _) | (KeyCode::Char('='), _) => {
-                        if let Some(p) = u.panes.filter(|p| p.divider.is_some()) {
-                            u.split = Some(p.summary.height + 1);
-                        }
-                    }
-                    (KeyCode::Char('p'), _) => u.opts.peaks = !u.opts.peaks,
-                    (KeyCode::Char('x'), _) => u.opts.raw = !u.opts.raw,
-                    (KeyCode::Char('t'), _) => u.opts.tree = !u.opts.tree,
-                    (KeyCode::Char('R'), _) => {
-                        st.reset_all_peaks();
-                        u.message = "all observed peaks reset".into();
-                    }
-                    (KeyCode::Char('r'), _) => {
-                        match (&u.screen, shown.get(u.cursor)) {
-                            (ui::Screen::Node, Some(ids)) => {
-                                for name in ids {
-                                    st.reset_peak(Some(name), "rss");
-                                    st.reset_peak(None, &format!("anon:{}", name));
-                                }
-                                u.message = format!("{}: observed peaks reset", ids.join(" "));
-                            }
-                            (ui::Screen::Daemon(n), Some(ids)) => {
-                                for id in ids {
-                                    st.reset_peak(Some(n), id);
-                                }
-                                u.message = format!(
-                                    "{} row{} reset",
-                                    ids.len(),
-                                    if ids.len() == 1 { "" } else { "s" }
-                                );
-                            }
-                            _ => {}
-                        }
-                        view = st.refresh();
-                    }
-                    (KeyCode::Char('g'), _) => {
-                        if let (ui::Screen::Daemon(n), Some(v)) = (&u.screen, &view) {
-                            if let Some(d) = v.daemons.iter().find(|d| &d.account.name == n) {
-                                if d.account.kind != "osd" {
-                                    u.message = "per-PG pglog applies to OSDs".into();
-                                } else if u.pglog_rx.is_some() {
-                                    u.message = "pg dump query still running".into();
-                                } else {
-                                    let id: u32 = n.trim_start_matches("osd.").parse().unwrap_or(0);
-                                    let q = pglog::PgQuery {
-                                        conf: cli
-                                            .conf
-                                            .clone()
-                                            .or(d.conf.clone())
-                                            .or_else(|| std::env::var("CEPH_CONF").ok()),
-                                        keyring: cli.keyring.clone(),
-                                        bindir: d.bindir.clone(),
-                                    };
-                                    let name = n.clone();
-                                    let (tx, rx) = std::sync::mpsc::channel();
-                                    std::thread::spawn(move || {
-                                        let _ = tx.send((name.clone(), pglog::fetch(&q, id)));
-                                    });
-                                    u.pglog_rx = Some(rx);
-                                    u.message = "querying pg dump ...".into();
-                                }
-                            }
-                        }
-                    }
-                    _ => {}
-                }
-            }
+        if !event::poll(wait).unwrap_or(false) {
+            continue;
+        }
+        let after = match event::read() {
+            Ok(Event::Resize(..)) => ui::After::Redraw,
+            Ok(Event::Mouse(m)) => u.on_mouse(m, &view),
+            Ok(Event::Key(k)) => u.on_key(k, &mut view, st),
+            _ => ui::After::Nothing,
+        };
+        match after {
+            ui::After::Quit => break,
+            ui::After::Redraw => dirty = true,
+            ui::After::Nothing => {}
         }
     }
     tui_restore();
+}
+
+fn main() {
+    let cli = Cli::parse();
+    let interval = Duration::from_secs_f64(cli.interval.max(0.2));
+    let max_spread = cli
+        .max_spread
+        .unwrap_or((interval.as_millis() / 2).max(200) as u64);
+    let stop = Arc::new(AtomicBool::new(false));
+    for sig in [
+        signal_hook::consts::SIGINT,
+        signal_hook::consts::SIGTERM,
+        signal_hook::consts::SIGHUP,
+    ] {
+        let _ = signal_hook::flag::register(sig, stop.clone());
+    }
+    let tui = !(cli.once || cli.json || cli.plain);
+    {
+        // a panic must not leave the terminal raw or the daemons' switches changed
+        let prev = std::panic::take_hook();
+        std::panic::set_hook(Box::new(move |info| {
+            if tui {
+                tui_restore();
+            }
+            for e in kvstats::restore_all() {
+                eprintln!("restore: {}", e);
+            }
+            prev(info);
+        }));
+    }
+    let mut source = match &cli.replay {
+        Some(dir) => replay_source(dir),
+        None => live_source(&cli, interval, stop.clone()),
+    };
+    let mut st = state::State::new(max_spread, cli.tolerance);
+    let opts = render::Opts {
+        peaks: !cli.no_peaks,
+        raw: cli.raw,
+        tree: !cli.flat,
+    };
+    let mut failed = 0;
+    let mut checked = 0;
+    if tui {
+        run_tui(&cli, &mut source, &mut st, opts, &stop, interval);
+    } else {
+        (checked, failed) = run_plain(&cli, &mut source, &mut st, opts, &stop);
+    }
     for e in kvstats::restore_all() {
         eprintln!("restore: {}", e);
+    }
+    if failed > 0 {
+        eprintln!("{} of {} samples failed their checks", failed, checked);
+        std::process::exit(1);
     }
 }

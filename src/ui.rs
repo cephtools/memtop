@@ -1,7 +1,12 @@
-//! The terminal UI: node view, daemon drill-down, per-PG pglog popup. Keys are handled in main.
+//! The terminal UI: the node screen, a daemon's screen, the per-PG pglog popup, and what the keys
+//! and the mouse do on them. Drawing is a function of the view and the UI state; the main loop
+//! only decides when to draw.
 
 use crate::render::{self, Opts, Table};
-use crate::state::View;
+use crate::state::{State, View};
+use ratatui::crossterm::event::{
+    KeyCode, KeyEvent, KeyEventKind, KeyModifiers, MouseButton, MouseEvent, MouseEventKind,
+};
 use ratatui::layout::{Constraint, Layout, Rect};
 use ratatui::style::{Modifier, Style};
 use ratatui::text::Line;
@@ -57,6 +62,17 @@ pub struct Ui {
     /// A per-PG query in flight, answered on its own thread so the screen keeps refreshing.
     pub pglog_rx: Option<std::sync::mpsc::Receiver<PgLogReply>>,
     pub help: bool,
+    /// --conf and --keyring for the per-PG query; the daemon's own -c is the fallback.
+    pub pg_conf: Option<String>,
+    pub pg_keyring: Option<String>,
+}
+
+/// What the main loop does after an event.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum After {
+    Nothing,
+    Redraw,
+    Quit,
 }
 
 impl Ui {
@@ -72,6 +88,207 @@ impl Ui {
             pglog: None,
             pglog_rx: None,
             help: false,
+            pg_conf: None,
+            pg_keyring: None,
+        }
+    }
+
+    /// The accounting ids behind each row of the current screen, in display order: the cursor,
+    /// the keys and the mouse act on them.
+    pub fn shown_rows(&self, view: &Option<View>) -> Vec<Vec<String>> {
+        let Some(v) = view else {
+            return Vec::new();
+        };
+        let t = match &self.screen {
+            Screen::Node => render::daemons_table(v, self.opts),
+            Screen::Daemon(n) => match v.daemons.iter().find(|d| &d.account.name == n) {
+                Some(d) if self.opts.tree => render::daemon_tree_table(d, self.opts),
+                Some(d) => render::daemon_table(d, self.opts),
+                None => return Vec::new(),
+            },
+        };
+        t.rows.into_iter().map(|r| r.ids).collect()
+    }
+
+    pub fn on_key(&mut self, k: KeyEvent, view: &mut Option<View>, st: &mut State) -> After {
+        if k.kind != KeyEventKind::Press {
+            return After::Nothing;
+        }
+        if self.help {
+            self.help = false;
+            return After::Redraw;
+        }
+        let shown = self.shown_rows(view);
+        let last = shown.len().saturating_sub(1);
+        match (k.code, k.modifiers) {
+            (KeyCode::Char('q'), _) | (KeyCode::Char('c'), KeyModifiers::CONTROL) => {
+                return After::Quit
+            }
+            (KeyCode::Char('?'), _) | (KeyCode::Char('h'), _) => self.help = true,
+            (KeyCode::Down, _) | (KeyCode::Char('j'), _) => {
+                self.cursor = (self.cursor + 1).min(last)
+            }
+            (KeyCode::Up, _) | (KeyCode::Char('k'), _) => {
+                self.cursor = self.cursor.saturating_sub(1)
+            }
+            (KeyCode::Enter, _) => {
+                if let (Screen::Node, Some(v)) = (&self.screen, &*view) {
+                    if let Some(d) = v.daemons.get(self.cursor) {
+                        self.screen = Screen::Daemon(d.account.name.clone());
+                        self.cursor = 0;
+                    }
+                }
+            }
+            (KeyCode::Esc, _) | (KeyCode::Backspace, _) => {
+                if self.pglog.is_some() {
+                    self.pglog = None;
+                } else if let Screen::Daemon(n) = &self.screen {
+                    // back to the node screen, the cursor on the daemon just left
+                    let n = n.clone();
+                    self.screen = Screen::Node;
+                    self.cursor = view
+                        .as_ref()
+                        .and_then(|v| v.daemons.iter().position(|d| d.account.name == n))
+                        .unwrap_or(0);
+                }
+            }
+            (KeyCode::Char('-'), _) => {
+                if let Some(p) = self.panes.filter(|p| p.divider.is_some()) {
+                    self.split = Some(p.summary.height.saturating_sub(1));
+                }
+            }
+            (KeyCode::Char('+'), _) | (KeyCode::Char('='), _) => {
+                if let Some(p) = self.panes.filter(|p| p.divider.is_some()) {
+                    self.split = Some(p.summary.height + 1);
+                }
+            }
+            (KeyCode::Char('p'), _) => self.opts.peaks = !self.opts.peaks,
+            (KeyCode::Char('x'), _) => self.opts.raw = !self.opts.raw,
+            (KeyCode::Char('t'), _) => self.opts.tree = !self.opts.tree,
+            (KeyCode::Char('R'), _) => {
+                st.reset_all_peaks();
+                self.message = "all observed peaks reset".into();
+                *view = st.refresh();
+            }
+            (KeyCode::Char('r'), _) => {
+                self.reset_row(&shown, st);
+                *view = st.refresh();
+            }
+            (KeyCode::Char('g'), _) => self.query_pglog(view),
+            _ => {}
+        }
+        After::Redraw
+    }
+
+    /// `r`: the observed peaks of the row under the cursor (a daemon's RSS on the node screen).
+    fn reset_row(&mut self, shown: &[Vec<String>], st: &mut State) {
+        match (&self.screen, shown.get(self.cursor)) {
+            (Screen::Node, Some(ids)) => {
+                for name in ids {
+                    st.reset_peak(Some(name), "rss");
+                    st.reset_peak(None, &format!("anon:{}", name));
+                }
+                self.message = format!("{}: observed peaks reset", ids.join(" "));
+            }
+            (Screen::Daemon(n), Some(ids)) => {
+                for id in ids {
+                    st.reset_peak(Some(n), id);
+                }
+                self.message = format!(
+                    "{} row{} reset",
+                    ids.len(),
+                    if ids.len() == 1 { "" } else { "s" }
+                );
+            }
+            _ => {}
+        }
+    }
+
+    /// `g`: the per-PG query for the daemon on screen, answered on its own thread.
+    fn query_pglog(&mut self, view: &Option<View>) {
+        let (Screen::Daemon(n), Some(v)) = (&self.screen, view) else {
+            return;
+        };
+        let Some(d) = v.daemons.iter().find(|d| &d.account.name == n) else {
+            return;
+        };
+        if d.account.kind != "osd" {
+            self.message = "per-PG pglog applies to OSDs".into();
+            return;
+        }
+        if self.pglog_rx.is_some() {
+            self.message = "pg dump query still running".into();
+            return;
+        }
+        let id: u32 = n.trim_start_matches("osd.").parse().unwrap_or(0);
+        let q = crate::pglog::PgQuery {
+            conf: self
+                .pg_conf
+                .clone()
+                .or(d.conf.clone())
+                .or_else(|| std::env::var("CEPH_CONF").ok()),
+            keyring: self.pg_keyring.clone(),
+            bindir: d.bindir.clone(),
+        };
+        let name = n.clone();
+        let (tx, rx) = std::sync::mpsc::channel();
+        std::thread::spawn(move || {
+            let _ = tx.send((name.clone(), crate::pglog::fetch(&q, id)));
+        });
+        self.pglog_rx = Some(rx);
+        self.message = "querying pg dump ...".into();
+    }
+
+    pub fn on_mouse(&mut self, m: MouseEvent, view: &Option<View>) -> After {
+        match m.kind {
+            MouseEventKind::Down(MouseButton::Left) => {
+                if self.help {
+                    self.help = false;
+                    return After::Redraw;
+                }
+                let Some(p) = self.panes else {
+                    return After::Nothing;
+                };
+                if let Some(div) = p.divider {
+                    // either edge of the border between the two sections grabs it
+                    if m.row == div || m.row == div + 1 {
+                        self.drag = Some(m.row - div);
+                        return After::Nothing;
+                    }
+                }
+                if let Some(i) = p.row_at(m.row) {
+                    if i < self.shown_rows(view).len() {
+                        self.cursor = i;
+                        return After::Redraw;
+                    }
+                }
+                After::Nothing
+            }
+            MouseEventKind::Drag(MouseButton::Left) => {
+                if let (Some(off), Some(p)) = (self.drag, self.panes) {
+                    // the grabbed border follows the pointer: the summary ends there
+                    let height = (m.row.saturating_sub(off) + 1).saturating_sub(p.summary.y);
+                    if self.split != Some(height) {
+                        self.split = Some(height);
+                        return After::Redraw;
+                    }
+                }
+                After::Nothing
+            }
+            MouseEventKind::Up(_) => {
+                self.drag = None;
+                After::Nothing
+            }
+            MouseEventKind::ScrollDown => {
+                let n = self.shown_rows(view).len();
+                self.cursor = (self.cursor + 1).min(n.saturating_sub(1));
+                After::Redraw
+            }
+            MouseEventKind::ScrollUp => {
+                self.cursor = self.cursor.saturating_sub(1);
+                After::Redraw
+            }
+            _ => After::Nothing,
         }
     }
 }
